@@ -59,7 +59,7 @@ The worker executes a 9-step sequential pipeline (`worker/src/worker.ts`):
 | Service | Purpose |
 |---------|---------|
 | `services/supabase.ts` | Database CRUD, file storage, audit logging |
-| `services/ai-parser.ts` | Claude-powered markdown→JSON parsing using `.claude/skills/parse-weekly-md.md` |
+| `services/ai-parser.ts` | Claude-powered markdown→JSON parsing using `.claude/skills/parse-weekly.md` |
 | `services/ai-rewriter.ts` | Claude-powered content optimization using `.claude/skills/rewrite-for-digital.md` |
 | `services/image-processor.ts` | Base64 image extraction and bucket upload |
 | `services/google-docs.ts` | File I/O and weekly ID extraction |
@@ -95,8 +95,14 @@ Copy `worker/.env.example` to `worker/.env`:
 ```bash
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your-service-role-key
-ANTHROPIC_API_KEY=your-api-key  # Optional if using Claude Max account
 ```
+
+## Planned Architecture
+
+See `docs/plans/2026-01-26-docker-architecture.md` for the Docker deployment plan:
+- Worker container (Express/Fastify) with HTTP API
+- Direct Google Docs integration via `export?format=md`
+- Dashboard frontend for triggering imports and viewing progress
 
 ## Key Patterns
 
