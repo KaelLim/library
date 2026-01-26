@@ -26,7 +26,7 @@ export async function parseWeeklyMarkdown(
     throw new Error('Anthropic not initialized. Call initAnthropic() first.');
   }
 
-  const skill = await loadSkill('parse-weekly-md');
+  const skill = await loadSkill('parse-weekly');
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',

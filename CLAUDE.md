@@ -67,7 +67,7 @@ The worker executes a 9-step sequential pipeline (`worker/src/worker.ts`):
 ### Claude Skills
 
 AI prompts are stored in `.claude/skills/`:
-- `parse-weekly-md.md` - Instructions for parsing 8-category weekly structure
+- `parse-weekly.md` - Instructions for parsing 8-category weekly structure
 - `rewrite-for-digital.md` - GEO/AIO/SEO optimization while preserving Tzu Chi style
 
 ### Database Schema

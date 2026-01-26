@@ -1,5 +1,5 @@
 ---
-name: parse-weekly-md
+name: parse-weekly
 description: 解析慈濟週報 Google Docs 匯出的 Markdown 檔案，辨識分類與文稿結構，輸出結構化 JSON
 ---
 
