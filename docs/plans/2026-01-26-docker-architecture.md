@@ -2,24 +2,93 @@
 
 ## 概述
 
-將 weekly-import-worker 打包為 Docker 容器，搭配 Dashboard 前端，形成完整的週報匯入系統。
+將 weekly-import-worker 打包為 Docker 容器，整合至 [supabase-docker](https://github.com/KaelLim/supabase-docker)，透過 Kong API Gateway 統一路由。
 
 ## 系統架構
 
 ```
-┌─────────────┐      POST /import       ┌─────────────────┐
-│  Dashboard  │ ───────────────────────→│  Worker (容器)   │
-│  (Frontend) │                         │  Express/Fastify │
-└─────────────┘                         └────────┬────────┘
-       ↑                                         │
-       │ 讀取進度                                  │ fetch md
-       │                                         ↓
-┌──────┴──────────────────────────────────────────────────┐
-│                      Supabase                           │
-│  ┌─────────┐  ┌─────────┐  ┌───────────┐  ┌──────────┐ │
-│  │ weekly  │  │articles │  │audit_logs │  │  bucket  │ │
-│  └─────────┘  └─────────┘  └───────────┘  └──────────┘ │
-└─────────────────────────────────────────────────────────┘
+                         Kong API Gateway (:8000)
+                                  │
+        ┌─────────────────────────┼─────────────────────────┐
+        │                         │                         │
+        ▼                         ▼                         ▼
+   /*  (Dashboard)         /api/import/*              /studio/*
+        │                    (Worker)              (Supabase Studio)
+        │                         │
+        │                         ▼
+        │              ┌─────────────────┐
+        │              │  Worker 容器    │
+        │              │ Express/Fastify │
+        │              └────────┬────────┘
+        │                       │
+        ▼                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                        Supabase                             │
+│  /rest/v1/*    /auth/v1/*    /storage/v1/*    /realtime/*  │
+│  ┌─────────┐  ┌─────────┐  ┌───────────┐  ┌──────────┐     │
+│  │ weekly  │  │articles │  │audit_logs │  │  bucket  │     │
+│  └─────────┘  └─────────┘  └───────────┘  └──────────┘     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Kong 路由配置
+
+整合至 `supabase-docker` 後的完整路由：
+
+| 路徑 | 目標服務 |
+|------|----------|
+| `/studio/*` | Supabase Studio |
+| `/rest/v1/*` | PostgREST |
+| `/auth/v1/*` | GoTrue |
+| `/storage/v1/*` | Storage |
+| `/realtime/v1/*` | Realtime |
+| `/functions/v1/*` | Edge Functions |
+| `/api/import/*` | **Worker (新增)** |
+| `/*` | **Dashboard (新增)** |
+
+## 部署整合
+
+### docker-compose.yml 新增服務
+
+```yaml
+# Worker service
+worker:
+  build: ../library/worker
+  environment:
+    - SUPABASE_URL=http://kong:8000
+    - SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
+  networks:
+    - supabase
+  restart: unless-stopped
+
+# Dashboard service
+dashboard:
+  build: ../library/dashboard
+  networks:
+    - supabase
+  restart: unless-stopped
+```
+
+### kong.yml 新增路由
+
+```yaml
+# Worker API
+- name: worker
+  url: http://worker:3000
+  routes:
+    - name: worker-route
+      paths:
+        - /api/import
+      strip_path: false
+
+# Dashboard (預設路由，放最後)
+- name: dashboard
+  url: http://dashboard:3000
+  routes:
+    - name: dashboard-route
+      paths:
+        - /
+      strip_path: false
 ```
 
 ## 元件說明
@@ -28,19 +97,20 @@
 
 - **框架**: Express 或 Fastify
 - **Runtime**: Node.js
+- **內部 Port**: 3000
 - **職責**: 執行週報匯入 pipeline（AI 處理耗時，不適合 Edge Function）
 
 **環境變數**:
 ```
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=your-service-role-key
+SUPABASE_URL=http://kong:8000
+SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
 ```
 
-> 注意：不需要 ANTHROPIC_API_KEY（使用 Claude Max 帳號）
+> 注意：容器內部透過 Docker network 連接 Kong，使用內部 URL
 
 **API Endpoint**:
 ```
-POST /import
+POST /api/import
 {
   "doc_id": "1EJi4AabcbPV2EqhxiTiv3KCLmlfD3R0cR1U3eOQHYzs",
   "weekly_id": 117,
@@ -70,9 +140,10 @@ Worker 流程：
 
 ### Dashboard
 
+- **內部 Port**: 3000
 - **職責**:
   - 提供 Google Doc ID/URL 輸入介面
-  - 觸發 worker 執行匯入
+  - 觸發 worker 執行匯入（`POST /api/import`，同 origin 無 CORS 問題）
   - 顯示匯入進度（讀取 `audit_logs`）
   - 管理 weekly 狀態（draft → published）
   - 預覽/編輯文稿
@@ -116,5 +187,4 @@ Claude AI 改寫每篇文章
 
 - [ ] Dashboard 技術選型（Next.js / Nuxt / SvelteKit / 其他）
 - [ ] Worker 框架選型（Express / Fastify）
-- [ ] 部署平台（Railway / Fly.io / Cloud Run / 其他）
-- [ ] 是否需要認證機制保護 Worker API
+- [ ] 是否需要認證機制保護 Worker API（可透過 Kong 或應用層實作）
