@@ -1,0 +1,4 @@
+.env
+volumes/db/data
+volumes/storage
+*.tar.gz

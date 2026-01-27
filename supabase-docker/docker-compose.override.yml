@@ -1,0 +1,8 @@
+# Storage named volume (xattr support for all platforms)
+services:
+  storage:
+    volumes:
+      - storage-data:/var/lib/storage
+
+volumes:
+  storage-data:

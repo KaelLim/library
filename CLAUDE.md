@@ -4,109 +4,153 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Weekly Import Worker** (週報匯入工作流程) - a TypeScript CLI tool that automates importing Tzu Chi Weekly publications (慈濟週報) from Google Docs exports into a Supabase database. It uses Claude AI for intelligent document parsing and content rewriting.
+慈濟週報匯入系統 - 自動化將 Google Docs 週報匯入 Supabase 資料庫，使用 Claude AI 進行內容解析與改寫。
+
+本專案整合了：
+- **Worker** - Fastify API 服務，執行匯入 pipeline
+- **Dashboard** - 前端管理介面（規劃中）
+- **Supabase** - 自架資料庫與儲存服務
+
+## Project Structure
+
+```
+library/
+├── .claude/skills/           # Claude AI prompts
+│   ├── parse-weekly.md       # 解析週報 markdown → JSON
+│   └── rewrite-for-digital.md # 改寫為數位版（GEO/AIO/SEO）
+├── docs/plans/               # 架構規劃文件
+├── worker/                   # 週報匯入 Worker（TypeScript）
+├── dashboard/                # 前端管理介面（規劃中）
+└── supabase-docker/          # 自架 Supabase（從 GitHub clone）
+    ├── docker-compose.yml
+    └── volumes/
+        └── api/kong.yml      # Kong 路由配置
+```
+
+## Docker Architecture
+
+```
+Kong API Gateway (:8000)
+├── /studio/*        → Supabase Studio
+├── /rest/v1/*       → PostgREST
+├── /auth/v1/*       → GoTrue
+├── /storage/v1/*    → Storage
+├── /realtime/v1/*   → Realtime
+├── /functions/v1/*  → Edge Functions
+├── /api/import/*    → Worker (待新增)
+└── /*               → Dashboard (待新增)
+```
 
 ## Commands
 
-All commands run from the `worker/` directory:
+### Worker Development
 
 ```bash
+cd worker
+
 # Install dependencies
 npm install
 
-# Run import (main workflow)
+# Run import (CLI mode)
 npm run import <md_file_path> [week_number] [user_email]
-npm run import ./downloads/週報.md 117 editor@example.com
 
 # Development with watch mode
 npm run dev
 
 # Build TypeScript
 npm run build
-
-# Run compiled version
-npm start
 ```
 
-### Test Scripts
+### Supabase Docker
 
 ```bash
-# Test image extraction from Google Docs markdown
-npx tsx src/test-images.ts
+cd supabase-docker
 
-# Test Claude AI parsing
-npx tsx src/test-ai-parse.ts
+# Setup environment
+cp .env.example .env
+# Edit .env with your secrets
+
+# Start all services
+docker compose up -d
+
+# Stop services (preserves data)
+docker compose down
+
+# View logs
+docker compose logs -f
 ```
 
-## Architecture
+## Import Pipeline
 
-### Import Pipeline
+Worker 執行 9 步驟 pipeline：
 
-The worker executes a 9-step sequential pipeline (`worker/src/worker.ts`):
+1. **starting** - 初始化 Supabase 和 Anthropic clients
+2. **exporting_docs** - 從 Google Docs 下載 markdown (`export?format=md`)
+3. **converting_images** - 提取 base64 圖片，上傳到 bucket，替換為 URL
+4. **uploading_original** - 上傳原始 markdown 到 bucket
+5. **ai_parsing** - Claude 解析 markdown 為結構化 JSON
+6. **uploading_clean** - 上傳整理後的 markdown
+7. **importing_docs** - 匯入原稿到資料庫 (platform='docs')
+8. **ai_rewriting** - Claude 改寫每篇文章為數位版
+9. **importing_digital** - 匯入數位版到資料庫 (platform='digital')
 
-1. **starting** - Initialize Supabase and Anthropic clients
-2. **exporting_docs** - Load markdown file from disk
-3. **converting_images** - Extract base64 images, upload to Supabase Storage, replace with URLs
-4. **uploading_original** - Store original markdown to bucket
-5. **ai_parsing** - Claude parses markdown into structured JSON (categories + articles)
-6. **uploading_clean** - Store reformatted markdown to bucket
-7. **importing_docs** - Insert parsed articles to database (platform='docs')
-8. **ai_rewriting** - Claude rewrites each article for digital distribution
-9. **importing_digital** - Insert rewritten articles to database (platform='digital')
-
-### Core Services
+## Core Services
 
 | Service | Purpose |
 |---------|---------|
-| `services/supabase.ts` | Database CRUD, file storage, audit logging |
-| `services/ai-parser.ts` | Claude-powered markdown→JSON parsing using `.claude/skills/parse-weekly.md` |
-| `services/ai-rewriter.ts` | Claude-powered content optimization using `.claude/skills/rewrite-for-digital.md` |
-| `services/image-processor.ts` | Base64 image extraction and bucket upload |
-| `services/google-docs.ts` | File I/O and weekly ID extraction |
+| `worker/src/services/supabase.ts` | Database CRUD, file storage, audit logging |
+| `worker/src/services/ai-parser.ts` | Claude markdown→JSON parsing |
+| `worker/src/services/ai-rewriter.ts` | Claude content optimization |
+| `worker/src/services/image-processor.ts` | Base64 image extraction and upload |
+| `worker/src/services/google-docs.ts` | Google Docs export integration |
 
-### Claude Skills
-
-AI prompts are stored in `.claude/skills/`:
-- `parse-weekly.md` - Instructions for parsing 8-category weekly structure
-- `rewrite-for-digital.md` - GEO/AIO/SEO optimization while preserving Tzu Chi style
-
-### Database Schema
+## Database Schema
 
 See `database.md` for full schema. Key tables:
-- **weekly** - Publication issues (week_number as PK, status: draft/published/archived)
-- **articles** - Unified table with `platform` field ('docs' for original, 'digital' for AI-rewritten)
-- **category** - 8 fixed categories with sort_order
-- **audit_logs** - Complete operation trail
-
-### Storage Structure
-
-```
-bucket: weekly
-articles/{weekly_id}/
-  images/image1.jpg
-  original.md
-  clean.md
-```
+- **weekly** - 週報期數 (week_number as PK, status: draft/published/archived)
+- **articles** - 文稿 (platform: 'docs' 原稿 / 'digital' AI改寫版)
+- **category** - 8 個固定分類
+- **audit_logs** - 操作紀錄
 
 ## Environment Setup
 
-Copy `worker/.env.example` to `worker/.env`:
+### Worker
 
 ```bash
-SUPABASE_URL=https://your-project.supabase.co
+# worker/.env
+SUPABASE_URL=http://localhost:8000  # 或 http://kong:8000 (Docker 內部)
 SUPABASE_SERVICE_KEY=your-service-role-key
 ```
 
-## Planned Architecture
+### Supabase Docker
 
-See `docs/plans/2026-01-26-docker-architecture.md` for the Docker deployment plan:
-- Worker container (Express/Fastify) with HTTP API
-- Direct Google Docs integration via `export?format=md`
-- Dashboard frontend for triggering imports and viewing progress
+```bash
+# supabase-docker/.env
+POSTGRES_PASSWORD=your-db-password
+JWT_SECRET=your-jwt-secret
+ANON_KEY=your-anon-key
+SERVICE_ROLE_KEY=your-service-role-key
+DASHBOARD_USERNAME=admin
+DASHBOARD_PASSWORD=admin-password
+```
+
+## Planned Work
+
+- [ ] Worker: 改為 Fastify HTTP API
+- [ ] Worker: 加入 Dockerfile
+- [ ] Worker: 整合到 supabase-docker/docker-compose.yml
+- [ ] Kong: 新增 `/api/import` 路由
+- [ ] Dashboard: 前端管理介面
+- [ ] Backup: PostgreSQL 和 Storage 備份策略
 
 ## Key Patterns
 
-- **ESM modules** - All imports use `.js` extension (TypeScript compiles to ESM)
+- **ESM modules** - All imports use `.js` extension
 - **Service-based architecture** - Each external dependency has dedicated service module
 - **Audit logging** - All database operations are logged with metadata
 - **Platform field** - Articles exist as 'docs' (original) and 'digital' (AI-rewritten) pairs
+
+## Related Documents
+
+- `database.md` - 資料庫 schema
+- `docs/plans/2026-01-26-docker-architecture.md` - Docker 架構規劃
