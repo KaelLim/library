@@ -37,8 +37,50 @@ Kong API Gateway (:8000)
 ├── /storage/v1/*    → Storage
 ├── /realtime/v1/*   → Realtime
 ├── /functions/v1/*  → Edge Functions
-├── /api/import/*    → Worker (待新增)
+├── /worker/*        → Worker (待新增)
 └── /*               → Dashboard (待新增)
+```
+
+### Worker Container
+
+**Base image**: `node:20-slim` (Debian-based，支援 Claude Code CLI 安裝)
+
+**必要元件**:
+- Node.js 20
+- Claude Code CLI（SDK 依賴）
+- Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
+
+**Dockerfile**:
+```dockerfile
+FROM node:20-slim
+
+# 安裝 curl（用於 Claude Code 安裝）
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# 安裝 Claude Code CLI
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# 設定 PATH
+ENV PATH="/root/.claude/bin:$PATH"
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY dist ./dist
+
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+```
+
+**部署後登入 Claude**:
+```bash
+# 進入 container
+docker exec -it worker bash
+
+# 登入 Claude（手動執行一次）
+claude login
 ```
 
 ## Commands
@@ -137,10 +179,10 @@ DASHBOARD_PASSWORD=admin-password
 ## Planned Work
 
 - [ ] Worker: 改為 Fastify HTTP API
-- [ ] Worker: 加入 Dockerfile
+- [ ] Worker: 建立 Dockerfile（見上方規格）
 - [ ] Worker: 整合到 supabase-docker/docker-compose.yml
-- [ ] Kong: 新增 `/api/import` 路由
-- [ ] Dashboard: 前端管理介面
+- [ ] Kong: 新增 `/worker/*` 路由
+- [ ] Dashboard: 前端管理介面（不使用 Next.js）
 - [ ] Backup: PostgreSQL 和 Storage 備份策略
 
 ## Key Patterns

@@ -12,7 +12,7 @@
         ┌─────────────────────────┼─────────────────────────┐
         │                         │                         │
         ▼                         ▼                         ▼
-   /*  (Dashboard)         /api/import/*              /studio/*
+   /*  (Dashboard)         /worker/*              /studio/*
         │                    (Worker)              (Supabase Studio)
         │                         │
         │                         ▼
@@ -43,7 +43,7 @@
 | `/storage/v1/*` | Storage |
 | `/realtime/v1/*` | Realtime |
 | `/functions/v1/*` | Edge Functions |
-| `/api/import/*` | **Worker (新增)** |
+| `/worker/*` | **Worker (新增)** |
 | `/*` | **Dashboard (新增)** |
 
 ## 部署整合
@@ -78,7 +78,7 @@ dashboard:
   routes:
     - name: worker-route
       paths:
-        - /api/import
+        - /worker
       strip_path: false
 
 # Dashboard (預設路由，放最後)
@@ -95,10 +95,40 @@ dashboard:
 
 ### Worker Container
 
-- **框架**: Express 或 Fastify
-- **Runtime**: Node.js
+- **框架**: Fastify
+- **Runtime**: Node.js 20
+- **Base Image**: `node:20-slim`
 - **內部 Port**: 3000
 - **職責**: 執行週報匯入 pipeline（AI 處理耗時，不適合 Edge Function）
+
+**必要元件**:
+- Node.js 20
+- Claude Code CLI（Agent SDK 依賴）
+- Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
+
+**Dockerfile**:
+```dockerfile
+FROM node:20-slim
+
+# 安裝 curl（用於 Claude Code 安裝）
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# 安裝 Claude Code CLI
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# 設定 PATH
+ENV PATH="/root/.claude/bin:$PATH"
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY dist ./dist
+
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+```
 
 **環境變數**:
 ```
@@ -106,11 +136,20 @@ SUPABASE_URL=http://kong:8000
 SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
 ```
 
+**部署後登入 Claude**:
+```bash
+# 進入 container
+docker exec -it worker bash
+
+# 登入 Claude（手動執行一次）
+claude login
+```
+
 > 注意：容器內部透過 Docker network 連接 Kong，使用內部 URL
 
 **API Endpoint**:
 ```
-POST /api/import
+POST /worker
 {
   "doc_id": "1EJi4AabcbPV2EqhxiTiv3KCLmlfD3R0cR1U3eOQHYzs",
   "weekly_id": 117,
@@ -143,7 +182,7 @@ Worker 流程：
 - **內部 Port**: 3000
 - **職責**:
   - 提供 Google Doc ID/URL 輸入介面
-  - 觸發 worker 執行匯入（`POST /api/import`，同 origin 無 CORS 問題）
+  - 觸發 worker 執行匯入（`POST /worker`，同 origin 無 CORS 問題）
   - 顯示匯入進度（讀取 `audit_logs`）
   - 管理 weekly 狀態（draft → published）
   - 預覽/編輯文稿
