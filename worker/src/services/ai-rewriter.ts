@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface RewrittenArticle {
   title: string;
+  description: string;
   content: string;
 }
 
@@ -18,7 +19,8 @@ async function loadSkill(skillName: string): Promise<string> {
 export async function rewriteForDigital(
   originalTitle: string,
   originalContent: string,
-  weeklyId: number
+  weeklyId: number,
+  categoryName: string
 ): Promise<RewrittenArticle> {
   const skill = await loadSkill('rewrite-for-digital');
 
@@ -28,9 +30,13 @@ export async function rewriteForDigital(
 
 請將以下週報原稿改寫為數位版內容。
 
+## 分類
+${categoryName}
+
 只輸出 JSON 格式：
 {
   "title": "改寫後的標題",
+  "description": "50-100字的文章摘要，適合用於 meta description 和社群分享",
   "content": "改寫後的 markdown 內容"
 }
 
@@ -68,8 +74,46 @@ ${originalContent}`;
   }
 }
 
+export async function generateDescription(
+  title: string,
+  content: string,
+  categoryName: string
+): Promise<string> {
+  const prompt = `你是一個專業的文章摘要生成器。請為以下慈濟週報文章生成一段 50-100 字的中文摘要。
+
+## 要求
+- 長度：50-100 字（中文）
+- 內容：概括文章核心訊息，回答「這篇文章在講什麼」
+- 用途：SEO meta description、社群分享卡片、文章列表預覽
+- 風格：完整句子，吸引點擊但不標題黨
+- 保持慈濟溫暖人文的語調
+
+## 分類
+${categoryName}
+
+## 文章標題
+${title}
+
+## 文章內容
+${content.substring(0, 2000)}
+
+請直接輸出摘要文字，不要有任何前綴或說明。`;
+
+  const resultText = await runSessionWithStreaming(prompt, {
+    weeklyId: 0,
+    model: 'claude-sonnet-4-20250514',
+  });
+
+  if (!resultText) {
+    throw new Error('No result from AI');
+  }
+
+  // 清理可能的引號或多餘空白
+  return resultText.trim().replace(/^["']|["']$/g, '');
+}
+
 export async function rewriteAllArticles(
-  articles: Array<{ title: string; content: string }>,
+  articles: Array<{ title: string; content: string; categoryName: string }>,
   weeklyId: number,
   onProgress?: (current: number, total: number) => void
 ): Promise<RewrittenArticle[]> {
@@ -79,7 +123,7 @@ export async function rewriteAllArticles(
     const article = articles[i];
     onProgress?.(i + 1, articles.length);
 
-    const rewritten = await rewriteForDigital(article.title, article.content, weeklyId);
+    const rewritten = await rewriteForDigital(article.title, article.content, weeklyId, article.categoryName);
     results.push(rewritten);
   }
 

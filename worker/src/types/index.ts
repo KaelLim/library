@@ -1,7 +1,7 @@
 // 解析後的文稿結構
 export interface ParsedArticle {
-  order_number: number;
   title: string;
+  description?: string;
   content: string;
 }
 
@@ -39,8 +39,8 @@ export interface Article {
   category_id: number;
   platform: 'docs' | 'digital';
   title: string;
+  description: string | null;
   content: string;
-  order_number: number;
   created_at: string;
   updated_at: string;
 }

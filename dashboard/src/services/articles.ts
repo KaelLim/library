@@ -15,7 +15,7 @@ export async function getArticles(
     .select('*, category(*)')
     .eq('weekly_id', weeklyId)
     .order('category_id', { ascending: true })
-    .order('order_number', { ascending: true });
+    .order('id', { ascending: true });
 
   if (platform) {
     query = query.eq('platform', platform);

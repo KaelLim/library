@@ -2,15 +2,15 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { runImportWorker } from './worker.js';
-import { rewriteForDigital } from './services/ai-rewriter.js';
+import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { buildExportUrl } from './services/google-docs.js';
 import {
   initSupabase,
   getArticleById,
-  getDigitalArticle,
-  updateArticle,
   insertArticle,
   insertAuditLog,
+  updateArticle,
+  getArticlesWithoutDescription,
 } from './services/supabase.js';
 
 // Initialize Supabase
@@ -124,7 +124,7 @@ fastify.post<{
   }
 
   try {
-    // Get the docs version article
+    // Get the docs version article with category
     const docsArticle = await getArticleById(article_id);
     if (!docsArticle) {
       return reply.status(404).send({
@@ -133,32 +133,21 @@ fastify.post<{
       });
     }
 
-    // Find or create the digital version
-    const digitalArticle = await getDigitalArticle(
-      docsArticle.weekly_id,
-      docsArticle.category_id,
-      docsArticle.order_number
-    );
+    // Get category name for the rewriter
+    const categoryName = docsArticle.category?.name || '未分類';
 
-    // Rewrite the article
-    const rewritten = await rewriteForDigital(docsArticle.title, docsArticle.content, docsArticle.weekly_id);
+    // Rewrite the article with category context
+    const rewritten = await rewriteForDigital(docsArticle.title, docsArticle.content, docsArticle.weekly_id, categoryName);
 
-    // Update or insert digital version
-    if (digitalArticle) {
-      await updateArticle(digitalArticle.id, {
-        title: rewritten.title,
-        content: rewritten.content,
-      });
-    } else {
-      await insertArticle({
-        weekly_id: docsArticle.weekly_id,
-        category_id: docsArticle.category_id,
-        platform: 'digital',
-        title: rewritten.title,
-        content: rewritten.content,
-        order_number: docsArticle.order_number,
-      });
-    }
+    // Insert digital version
+    await insertArticle({
+      weekly_id: docsArticle.weekly_id,
+      category_id: docsArticle.category_id,
+      platform: 'digital',
+      title: rewritten.title,
+      description: rewritten.description,
+      content: rewritten.content,
+    });
 
     // Log the action
     await insertAuditLog({
@@ -187,6 +176,107 @@ fastify.post<{
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
+});
+
+// Generate description for a single article
+fastify.post<{
+  Body: {
+    article_id: number;
+  };
+}>('/generate-description', async (request, reply) => {
+  const { article_id } = request.body;
+
+  if (!article_id) {
+    return reply.status(400).send({
+      error: 'MISSING_ARTICLE_ID',
+      message: 'article_id is required',
+    });
+  }
+
+  try {
+    const article = await getArticleById(article_id);
+    if (!article) {
+      return reply.status(404).send({
+        error: 'ARTICLE_NOT_FOUND',
+        message: `Article ${article_id} not found`,
+      });
+    }
+
+    const categoryName = article.category?.name || '未分類';
+    const description = await generateDescription(article.title, article.content, categoryName);
+
+    await updateArticle(article_id, { description });
+
+    return {
+      success: true,
+      article_id,
+      description,
+    };
+  } catch (error) {
+    console.error('Generate description failed:', error);
+    return reply.status(500).send({
+      error: 'GENERATE_DESCRIPTION_FAILED',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Batch generate descriptions for articles without description
+fastify.post<{
+  Body: {
+    limit?: number;
+  };
+}>('/batch-generate-descriptions', async (request, reply) => {
+  const { limit = 10 } = request.body || {};
+
+  try {
+    const articles = await getArticlesWithoutDescription(limit);
+
+    if (articles.length === 0) {
+      return {
+        success: true,
+        message: 'No articles need description',
+        processed: 0,
+        remaining: 0,
+      };
+    }
+
+    // 回傳 202，背景處理
+    reply.status(202).send({
+      success: true,
+      message: `Processing ${articles.length} articles`,
+      processing: articles.length,
+    });
+
+    // 背景逐一處理
+    for (const article of articles) {
+      try {
+        const categoryName = article.category?.name || '未分類';
+        const description = await generateDescription(article.title, article.content, categoryName);
+        await updateArticle(article.id, { description });
+        console.log(`[${article.id}] Description generated: ${description.substring(0, 50)}...`);
+      } catch (err) {
+        console.error(`[${article.id}] Failed:`, err);
+      }
+    }
+
+    console.log(`Batch description generation completed: ${articles.length} articles`);
+  } catch (error) {
+    console.error('Batch generate descriptions failed:', error);
+    return reply.status(500).send({
+      error: 'BATCH_GENERATE_FAILED',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Get count of articles without description
+fastify.get('/articles-without-description', async () => {
+  const articles = await getArticlesWithoutDescription(10000);
+  return {
+    count: articles.length,
+    sample: articles.slice(0, 5).map(a => ({ id: a.id, title: a.title, platform: a.platform })),
+  };
 });
 
 // Start server

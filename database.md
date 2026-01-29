@@ -26,12 +26,11 @@ create table public.articles (
   category_id bigint not null,
   platform text not null default 'docs',
   title text not null,
+  description text null,
   content text not null,
-  order_number integer not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint articles_pkey primary key (id),
-  constraint articles_unique_entry unique (weekly_id, category_id, platform, order_number),
   constraint articles_weekly_id_fkey foreign key (weekly_id) references weekly (week_number) on delete cascade,
   constraint articles_category_id_fkey foreign key (category_id) references category (id) on delete restrict,
   constraint articles_platform_check check (

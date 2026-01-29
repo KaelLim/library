@@ -1,7 +1,7 @@
 import { loadMarkdownFromFile, extractWeeklyId, downloadMarkdownFromGoogleDocs } from './services/google-docs.js';
 import { processAllImages } from './services/image-processor.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
-import { rewriteForDigital } from './services/ai-rewriter.js';
+import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { cleanupChannel } from './services/session-streamer.js';
 import {
   initSupabase,
@@ -105,7 +105,7 @@ export async function runImportWorker(
     const cleanMarkdown = await generateCleanMarkdown(markdownWithUrls, parsed);
     await uploadMarkdown(weeklyId, 'clean.md', cleanMarkdown);
 
-    // 6. 匯入 docs 版文稿
+    // 6. 匯入 docs 版文稿（含 AI 生成 description）
     const totalArticles = parsed.categories.reduce((sum, cat) => sum + cat.articles.length, 0);
     let importedCount = 0;
 
@@ -115,13 +115,16 @@ export async function runImportWorker(
       const dbCategory = await getOrCreateCategory(category.name, category.sort_order);
 
       for (const article of category.articles) {
+        // 生成 description
+        const description = await generateDescription(article.title, article.content, category.name);
+
         const inserted = await insertArticle({
           weekly_id: weeklyId,
           category_id: dbCategory.id,
           platform: 'docs',
           title: article.title,
+          description,
           content: article.content,
-          order_number: article.order_number,
         });
 
         await writeAuditLog({
@@ -147,15 +150,15 @@ export async function runImportWorker(
       const dbCategory = await getOrCreateCategory(category.name, category.sort_order);
 
       for (const article of category.articles) {
-        const rewritten = await rewriteForDigital(article.title, article.content, weeklyId);
+        const rewritten = await rewriteForDigital(article.title, article.content, weeklyId, category.name);
 
         const inserted = await insertArticle({
           weekly_id: weeklyId,
           category_id: dbCategory.id,
           platform: 'digital',
           title: rewritten.title,
+          description: rewritten.description,
           content: rewritten.content,
-          order_number: article.order_number,
         });
 
         await writeAuditLog({

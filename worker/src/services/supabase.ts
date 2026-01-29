@@ -97,7 +97,7 @@ export async function getArticlesByWeekly(weeklyId: number, platform: 'docs' | '
     .eq('weekly_id', weeklyId)
     .eq('platform', platform)
     .order('category_id')
-    .order('order_number');
+    .order('id');
 
   if (error) throw error;
   return data as Article[];
@@ -168,36 +168,20 @@ export async function uploadMarkdown(
 // 額外方法（HTTP API 用）
 // =====================
 
-export async function getArticleById(articleId: number): Promise<Article | null> {
+export async function getArticleById(articleId: number): Promise<(Article & { category?: Category }) | null> {
   const { data } = await getSupabase()
     .from('articles')
-    .select('*')
+    .select('*, category:category_id(*)')
     .eq('id', articleId)
     .single();
 
-  return data as Article | null;
+  return data as (Article & { category?: Category }) | null;
 }
 
-export async function getDigitalArticle(
-  weeklyId: number,
-  categoryId: number,
-  orderNumber: number
-): Promise<Article | null> {
-  const { data } = await getSupabase()
-    .from('articles')
-    .select('*')
-    .eq('weekly_id', weeklyId)
-    .eq('category_id', categoryId)
-    .eq('order_number', orderNumber)
-    .eq('platform', 'digital')
-    .single();
-
-  return data as Article | null;
-}
 
 export async function updateArticle(
   articleId: number,
-  updates: Partial<Pick<Article, 'title' | 'content'>>
+  updates: Partial<Pick<Article, 'title' | 'description' | 'content'>>
 ): Promise<void> {
   const { error } = await getSupabase()
     .from('articles')
@@ -205,6 +189,20 @@ export async function updateArticle(
     .eq('id', articleId);
 
   if (error) throw error;
+}
+
+export async function getArticlesWithoutDescription(
+  limit: number = 100
+): Promise<(Article & { category?: Category })[]> {
+  const { data, error } = await getSupabase()
+    .from('articles')
+    .select('*, category:category_id(*)')
+    .is('description', null)
+    .order('id', { ascending: true })
+    .limit(limit);
+
+  if (error) throw error;
+  return data as (Article & { category?: Category })[];
 }
 
 export async function insertAuditLog(log: Omit<AuditLog, 'id' | 'created_at'>): Promise<void> {
