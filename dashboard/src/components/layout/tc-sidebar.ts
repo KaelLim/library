@@ -2,8 +2,6 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { authStore } from '../../stores/auth-store.js';
 import './tc-nav-item.js';
-import './tc-nav-group.js';
-import './tc-nav-sub-item.js';
 
 @customElement('tc-sidebar')
 export class TcSidebar extends LitElement {

@@ -17,7 +17,6 @@ import '../components/ui/tc-button.js';
 import '../components/ui/tc-badge.js';
 import '../components/ui/tc-spinner.js';
 import '../components/ui/tc-dialog.js';
-import '../components/article/tc-platform-toggle.js';
 import '../components/article/tc-category-tabs.js';
 import '../components/article/tc-article-card.js';
 
