@@ -56,3 +56,20 @@ export function extractDocId(url: string): string | null {
 export function buildExportUrl(docId: string): string {
   return `https://docs.google.com/document/d/${docId}/export?format=md`;
 }
+
+/**
+ * 從 Google Docs 下載 markdown
+ * 需要文件設為「任何人都可以檢視」
+ */
+export async function downloadMarkdownFromGoogleDocs(docId: string): Promise<string> {
+  const exportUrl = buildExportUrl(docId);
+
+  const response = await fetch(exportUrl);
+
+  if (!response.ok) {
+    throw new Error(`Failed to download from Google Docs: ${response.status} ${response.statusText}`);
+  }
+
+  const markdown = await response.text();
+  return markdown;
+}

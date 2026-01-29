@@ -1,7 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { runSessionWithStreaming } from './session-streamer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -16,19 +16,13 @@ async function loadSkill(skillName: string): Promise<string> {
 }
 
 export async function rewriteForDigital(
-  anthropic: Anthropic,
   originalTitle: string,
-  originalContent: string
+  originalContent: string,
+  weeklyId: number
 ): Promise<RewrittenArticle> {
   const skill = await loadSkill('rewrite-for-digital');
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 8000,
-    messages: [
-      {
-        role: 'user',
-        content: `${skill}
+  const prompt = `${skill}
 
 ---
 
@@ -48,18 +42,20 @@ export async function rewriteForDigital(
 ${originalTitle}
 
 ## 原稿內容
-${originalContent}`,
-      },
-    ],
+${originalContent}`;
+
+  // 使用 session streaming，即時廣播進度
+  const resultText = await runSessionWithStreaming(prompt, {
+    weeklyId,
+    model: 'claude-sonnet-4-20250514',
   });
 
-  const content = response.content[0];
-  if (content.type !== 'text') {
-    throw new Error('Unexpected response type');
+  if (!resultText) {
+    throw new Error('No result from AI');
   }
 
   // 提取 JSON
-  let jsonStr = content.text;
+  let jsonStr = resultText;
   const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch) {
     jsonStr = jsonMatch[1];
@@ -73,8 +69,8 @@ ${originalContent}`,
 }
 
 export async function rewriteAllArticles(
-  anthropic: Anthropic,
   articles: Array<{ title: string; content: string }>,
+  weeklyId: number,
   onProgress?: (current: number, total: number) => void
 ): Promise<RewrittenArticle[]> {
   const results: RewrittenArticle[] = [];
@@ -83,7 +79,7 @@ export async function rewriteAllArticles(
     const article = articles[i];
     onProgress?.(i + 1, articles.length);
 
-    const rewritten = await rewriteForDigital(anthropic, article.title, article.content);
+    const rewritten = await rewriteForDigital(article.title, article.content, weeklyId);
     results.push(rewritten);
   }
 

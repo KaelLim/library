@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { loadMarkdownFromFile, extractWeeklyId } from './services/google-docs.js';
+import { loadMarkdownFromFile, extractWeeklyId, downloadMarkdownFromGoogleDocs } from './services/google-docs.js';
 import { processAllImages } from './services/image-processor.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
 import { rewriteForDigital } from './services/ai-rewriter.js';
+import { cleanupChannel } from './services/session-streamer.js';
 import {
   initSupabase,
   getOrCreateWeekly,
@@ -10,12 +10,16 @@ import {
   insertArticle,
   uploadMarkdown,
   writeAuditLog,
+  updateImportProgress,
+  broadcastImportProgress,
+  clearImportProgress,
 } from './services/supabase.js';
 import type { ImportStep, ParsedWeekly } from './types/index.js';
 import { basename } from 'path';
 
 interface WorkerOptions {
-  filePath: string;
+  filePath?: string;
+  docId?: string;
   weeklyId?: number;
   userEmail?: string;
 }
@@ -26,26 +30,46 @@ export async function runImportWorker(
   options: WorkerOptions,
   onProgress?: ProgressCallback
 ): Promise<void> {
-  const { filePath, userEmail } = options;
+  const { filePath, docId, userEmail } = options;
+  let weeklyId: number | undefined;
 
-  const log = (step: ImportStep, progress?: string, error?: string) => {
+  // 進度更新函式：console + callback + DB + broadcast
+  const updateProgress = async (step: ImportStep, progress?: string, error?: string) => {
     console.log(`[${step}]`, progress || '', error ? `Error: ${error}` : '');
     onProgress?.(step, progress, error);
+
+    // 如果有 weeklyId，更新 DB 和廣播
+    if (weeklyId) {
+      const progressData = { step, progress, error };
+      await updateImportProgress(weeklyId, progressData);
+      await broadcastImportProgress(weeklyId, progressData);
+    }
   };
 
   try {
-    log('starting');
+    await updateProgress('starting', '初始化中...');
 
-    // 初始化
+    // 初始化 Supabase
     initSupabase();
-    const anthropic = new Anthropic();
 
-    // 1. 讀取 markdown 檔案
-    log('exporting_docs', '讀取檔案中...');
-    const rawMarkdown = await loadMarkdownFromFile(filePath);
+    // 1. 讀取 markdown（從本地檔案或 Google Docs）
+    await updateProgress('exporting_docs', docId ? '從 Google Docs 下載中...' : '讀取檔案中...');
+    let rawMarkdown: string;
+    let source: string;
+
+    if (docId) {
+      rawMarkdown = await downloadMarkdownFromGoogleDocs(docId);
+      source = `google-docs:${docId}`;
+    } else if (filePath) {
+      rawMarkdown = await loadMarkdownFromFile(filePath);
+      source = filePath;
+    } else {
+      throw new Error('必須提供 filePath 或 docId');
+    }
 
     // 提取 weekly_id
-    const weeklyId = options.weeklyId || extractWeeklyId(basename(filePath), rawMarkdown);
+    const extractedId = extractWeeklyId(filePath ? basename(filePath) : 'document', rawMarkdown);
+    weeklyId = options.weeklyId || extractedId || undefined;
     if (!weeklyId) {
       throw new Error('無法從檔名或內容提取期數，請手動指定 weeklyId');
     }
@@ -61,30 +85,31 @@ export async function runImportWorker(
       record_id: null,
       old_data: null,
       new_data: null,
-      metadata: { weekly_id: weeklyId, source: filePath, step: 'started' },
+      metadata: { weekly_id: weeklyId, source, step: 'started' },
     });
 
     // 2. 處理 base64 圖片
-    log('converting_images', '轉換圖片中...');
+    await updateProgress('converting_images', '轉換圖片中...');
     const markdownWithUrls = await processAllImages(rawMarkdown, weeklyId);
 
     // 3. 上傳 original.md
-    log('uploading_original', '上傳原始檔案...');
+    await updateProgress('uploading_original', '上傳原始檔案...');
     await uploadMarkdown(weeklyId, 'original.md', markdownWithUrls);
 
     // 4. AI 解析
-    log('ai_parsing', 'AI 解析中...');
+    await updateProgress('ai_parsing', 'AI 解析中...');
     const parsed: ParsedWeekly = await parseWeeklyMarkdown(markdownWithUrls, weeklyId);
 
     // 5. 生成並上傳 clean.md
-    log('uploading_clean', '上傳整理後檔案...');
+    await updateProgress('uploading_clean', '上傳整理後檔案...');
     const cleanMarkdown = await generateCleanMarkdown(markdownWithUrls, parsed);
     await uploadMarkdown(weeklyId, 'clean.md', cleanMarkdown);
 
     // 6. 匯入 docs 版文稿
-    log('importing_docs', '匯入原稿中...');
     const totalArticles = parsed.categories.reduce((sum, cat) => sum + cat.articles.length, 0);
     let importedCount = 0;
+
+    await updateProgress('importing_docs', `匯入原稿中... 0/${totalArticles}`);
 
     for (const category of parsed.categories) {
       const dbCategory = await getOrCreateCategory(category.name, category.sort_order);
@@ -110,19 +135,19 @@ export async function runImportWorker(
         });
 
         importedCount++;
-        log('importing_docs', `${importedCount}/${totalArticles}`);
+        await updateProgress('importing_docs', `匯入原稿中... ${importedCount}/${totalArticles}`);
       }
     }
 
     // 7. AI 改寫為 digital 版
-    log('ai_rewriting', 'AI 改寫中...');
     let rewrittenCount = 0;
+    await updateProgress('ai_rewriting', `AI 改寫中... 0/${totalArticles}`);
 
     for (const category of parsed.categories) {
       const dbCategory = await getOrCreateCategory(category.name, category.sort_order);
 
       for (const article of category.articles) {
-        const rewritten = await rewriteForDigital(anthropic, article.title, article.content);
+        const rewritten = await rewriteForDigital(article.title, article.content, weeklyId);
 
         const inserted = await insertArticle({
           weekly_id: weeklyId,
@@ -149,7 +174,7 @@ export async function runImportWorker(
         });
 
         rewrittenCount++;
-        log('ai_rewriting', `${rewrittenCount}/${totalArticles}`);
+        await updateProgress('ai_rewriting', `AI 改寫中... ${rewrittenCount}/${totalArticles}`);
       }
     }
 
@@ -164,10 +189,19 @@ export async function runImportWorker(
       metadata: { weekly_id: weeklyId, step: 'completed', total_articles: totalArticles },
     });
 
-    log('completed', `完成！共匯入 ${totalArticles} 篇文稿`);
+    await updateProgress('completed', `完成！共匯入 ${totalArticles} 篇文稿`);
+
+    // 清理 streaming channel
+    if (weeklyId) await cleanupChannel(weeklyId);
+
+    // 清除進度（延遲幾秒讓前端有時間顯示完成狀態）
+    setTimeout(() => {
+      if (weeklyId) clearImportProgress(weeklyId);
+    }, 5000);
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    log('failed', undefined, errorMessage);
+    await updateProgress('failed', undefined, errorMessage);
 
     await writeAuditLog({
       user_email: userEmail || null,
@@ -178,6 +212,9 @@ export async function runImportWorker(
       new_data: null,
       metadata: { step: 'failed', error: errorMessage },
     });
+
+    // 清理 streaming channel
+    if (weeklyId) await cleanupChannel(weeklyId);
 
     throw error;
   }

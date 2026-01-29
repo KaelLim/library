@@ -1,17 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type { ParsedWeekly } from '../types/index.js';
+import { runSessionWithStreaming } from './session-streamer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let anthropic: Anthropic;
-
-export function initAnthropic() {
-  anthropic = new Anthropic();
-  return anthropic;
-}
 
 async function loadSkill(skillName: string): Promise<string> {
   const skillPath = join(__dirname, '../../../.claude/skills', `${skillName}.md`);
@@ -22,19 +15,9 @@ export async function parseWeeklyMarkdown(
   markdown: string,
   weeklyId: number
 ): Promise<ParsedWeekly> {
-  if (!anthropic) {
-    throw new Error('Anthropic not initialized. Call initAnthropic() first.');
-  }
-
   const skill = await loadSkill('parse-weekly');
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 16000,
-    messages: [
-      {
-        role: 'user',
-        content: `${skill}
+  const prompt = `${skill}
 
 ---
 
@@ -44,18 +27,20 @@ export async function parseWeeklyMarkdown(
 
 ---
 
-${markdown}`,
-      },
-    ],
+${markdown}`;
+
+  // 使用 session streaming，即時廣播進度
+  const resultText = await runSessionWithStreaming(prompt, {
+    weeklyId,
+    model: 'claude-sonnet-4-20250514',
   });
 
-  const content = response.content[0];
-  if (content.type !== 'text') {
-    throw new Error('Unexpected response type');
+  if (!resultText) {
+    throw new Error('No result from AI');
   }
 
   // 提取 JSON（可能被包在 code block 中）
-  let jsonStr = content.text;
+  let jsonStr = resultText;
   const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch) {
     jsonStr = jsonMatch[1];

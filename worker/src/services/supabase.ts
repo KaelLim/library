@@ -163,3 +163,115 @@ export async function uploadMarkdown(
   const path = `articles/${weeklyId}/${filename}`;
   return uploadToStorage('weekly', path, content, 'text/markdown');
 }
+
+// =====================
+// 額外方法（HTTP API 用）
+// =====================
+
+export async function getArticleById(articleId: number): Promise<Article | null> {
+  const { data } = await getSupabase()
+    .from('articles')
+    .select('*')
+    .eq('id', articleId)
+    .single();
+
+  return data as Article | null;
+}
+
+export async function getDigitalArticle(
+  weeklyId: number,
+  categoryId: number,
+  orderNumber: number
+): Promise<Article | null> {
+  const { data } = await getSupabase()
+    .from('articles')
+    .select('*')
+    .eq('weekly_id', weeklyId)
+    .eq('category_id', categoryId)
+    .eq('order_number', orderNumber)
+    .eq('platform', 'digital')
+    .single();
+
+  return data as Article | null;
+}
+
+export async function updateArticle(
+  articleId: number,
+  updates: Partial<Pick<Article, 'title' | 'content'>>
+): Promise<void> {
+  const { error } = await getSupabase()
+    .from('articles')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', articleId);
+
+  if (error) throw error;
+}
+
+export async function insertAuditLog(log: Omit<AuditLog, 'id' | 'created_at'>): Promise<void> {
+  await writeAuditLog(log);
+}
+
+// =====================
+// Import Progress 操作
+// =====================
+
+export interface ImportProgress {
+  step: string;
+  progress?: string;
+  error?: string;
+}
+
+/**
+ * 更新 weekly 表的匯入進度
+ */
+export async function updateImportProgress(
+  weeklyId: number,
+  progress: ImportProgress
+): Promise<void> {
+  const { error } = await getSupabase()
+    .from('weekly')
+    .update({
+      import_step: progress.step,
+      import_progress: progress.progress || null,
+      import_error: progress.error || null,
+    })
+    .eq('week_number', weeklyId);
+
+  if (error) {
+    console.error('Failed to update import progress:', error);
+  }
+}
+
+/**
+ * 清除匯入進度（匯入完成或失敗後）
+ */
+export async function clearImportProgress(weeklyId: number): Promise<void> {
+  const { error } = await getSupabase()
+    .from('weekly')
+    .update({
+      import_step: null,
+      import_progress: null,
+      import_error: null,
+    })
+    .eq('week_number', weeklyId);
+
+  if (error) {
+    console.error('Failed to clear import progress:', error);
+  }
+}
+
+/**
+ * 廣播匯入進度到 Realtime channel
+ */
+export async function broadcastImportProgress(
+  weeklyId: number,
+  progress: ImportProgress
+): Promise<void> {
+  const channel = getSupabase().channel(`import:${weeklyId}`);
+
+  await channel.send({
+    type: 'broadcast',
+    event: 'progress',
+    payload: progress,
+  });
+}

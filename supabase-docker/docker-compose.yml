@@ -548,5 +548,28 @@ services:
       timeout: 5s
       retries: 3
 
+  # 週報匯入 Worker (僅在 --profile worker 時啟動)
+  worker:
+    container_name: library-worker
+    profiles: [worker]
+    build:
+      context: ../worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      PORT: "3001"
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   db-config:

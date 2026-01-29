@@ -313,37 +313,31 @@ services:
         config:
           hide_credentials: true
 
-  ## ============================================================
-  ## 根路徑處理 - 選擇 [A] 或 [B]（僅啟用其中一個）
-  ## ============================================================
-
-  ## [A] 開發模式：根路徑代理到 Studio（預設啟用）
-  ## 使用方式：docker compose up
-  ## 效果：訪問 http://localhost:8000/ 會進入 Studio
-  #- name: root-to-studio
-  #  _comment: 'Development: / -> http://studio:3000/studio'
-  #  url: http://studio:3000/studio
-  #  routes:
-  #    - name: root-to-studio-route
-  #      strip_path: true
-  #      paths:
-  #        - /
-  #  plugins:
-  #    - name: cors
-  #    - name: basic-auth
-  #      config:
-  #        hide_credentials: true
-
-  ## [B] 正式環境：根路徑轉發到 MasterSlides
-  ## 使用方式：docker compose --profile app up
-  ## 啟用步驟：
-  ##   1. 註解掉上方 [A] root-to-studio 整個區塊
-  ##   2. 取消註解下方 [B] master-slides 整個區塊
-  - name: master-slides
-    _comment: 'MasterSlides: /* -> http://master-slides:3000/*'
-    url: http://master-slides:3000/
+  ## Worker API routes (週報匯入)
+  ## 開發模式：使用 host.docker.internal 指向本機
+  ## 生產模式：改為 http://worker:3001/
+  - name: worker
+    _comment: 'Worker: /worker/* -> http://host.docker.internal:3001/*'
+    url: http://host.docker.internal:3001/
     routes:
-      - name: master-slides-all
+      - name: worker-all
+        strip_path: true
+        paths:
+          - /worker/
+    plugins:
+      - name: cors
+
+  ## ============================================================
+  ## 根路徑處理 - Dashboard
+  ## ============================================================
+
+  ## 開發模式：使用 host.docker.internal 指向本機 Dashboard
+  ## 生產模式：改為 http://library-dashboard:8973/
+  - name: library-dashboard
+    _comment: 'Library Dashboard: /* -> http://host.docker.internal:8973/*'
+    url: http://host.docker.internal:8973/
+    routes:
+      - name: library-dashboard-all
         strip_path: false
         paths:
           - /
