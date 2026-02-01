@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.19",
     "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^9.4.0",
     "@supabase/supabase-js": "^2.49.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.7.2"

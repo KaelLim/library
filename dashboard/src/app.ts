@@ -12,6 +12,7 @@ import './pages/page-weekly-list.js';
 import './pages/page-weekly-detail.js';
 import './pages/page-import-progress.js';
 import './pages/page-article-edit.js';
+import './pages/page-books-list.js';
 import './pages/page-not-found.js';
 
 // Import stores
@@ -82,6 +83,11 @@ export class TcApp extends LitElement {
         {
           path: '/weekly/:id/article/:articleId',
           component: 'page-article-edit',
+          action: () => this.authGuard(),
+        },
+        {
+          path: '/books',
+          component: 'page-books-list',
           action: () => this.authGuard(),
         },
         {

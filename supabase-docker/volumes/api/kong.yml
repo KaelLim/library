@@ -313,12 +313,10 @@ services:
         config:
           hide_credentials: true
 
-  ## Worker API routes (週報匯入)
-  ## 開發模式：使用 host.docker.internal 指向本機
-  ## 生產模式：改為 http://worker:3001/
+  ## Worker API routes (週報匯入 + FlipHTML5 電子書)
   - name: worker
-    _comment: 'Worker: /worker/* -> http://host.docker.internal:3001/*'
-    url: http://host.docker.internal:3001/
+    _comment: 'Worker: /worker/* -> http://worker:3001/*'
+    url: http://worker:3001/
     routes:
       - name: worker-all
         strip_path: true
@@ -331,11 +329,9 @@ services:
   ## 根路徑處理 - Dashboard
   ## ============================================================
 
-  ## 開發模式：使用 host.docker.internal 指向本機 Dashboard
-  ## 生產模式：改為 http://library-dashboard:8973/
   - name: library-dashboard
-    _comment: 'Library Dashboard: /* -> http://host.docker.internal:8973/*'
-    url: http://host.docker.internal:8973/
+    _comment: 'Library Dashboard: /* -> http://dashboard:8973/*'
+    url: http://dashboard:8973/
     routes:
       - name: library-dashboard-all
         strip_path: false

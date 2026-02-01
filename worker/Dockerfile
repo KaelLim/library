@@ -1,7 +1,12 @@
 FROM node:20-slim
 
-# Install curl for Claude Code installation
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install system dependencies
+# - curl: for Claude Code installation
+# - ghostscript: for PDF compression
+RUN apt-get update && apt-get install -y \
+    curl \
+    ghostscript \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI (required for claude-agent-sdk)
 RUN curl -fsSL https://claude.ai/install.sh | bash

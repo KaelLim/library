@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { Article, AuditLog, Category, Weekly } from '../types/index.js';
+import { randomUUID } from 'crypto';
+import type { Article, AuditLog, Category, Weekly, Book, BookInsert, BooksCategory } from '../types/index.js';
 
 let supabase: SupabaseClient;
 
@@ -272,4 +273,181 @@ export async function broadcastImportProgress(
     event: 'progress',
     payload: progress,
   });
+}
+
+// =====================
+// Books 電子書操作
+// =====================
+
+/**
+ * 取得所有電子書分類
+ */
+export async function getBooksCategories(): Promise<BooksCategory[]> {
+  const { data, error } = await getSupabase()
+    .from('books_category')
+    .select('*')
+    .order('sort_order');
+
+  if (error) throw error;
+  return data as BooksCategory[];
+}
+
+/**
+ * 根據名稱取得電子書分類
+ */
+export async function getBooksCategoryByName(name: string): Promise<BooksCategory | null> {
+  const { data } = await getSupabase()
+    .from('books_category')
+    .select('*')
+    .eq('name', name)
+    .single();
+
+  return data as BooksCategory | null;
+}
+
+/**
+ * 根據 slug 取得電子書分類
+ */
+export async function getBooksCategoryBySlug(slug: string): Promise<BooksCategory | null> {
+  const { data } = await getSupabase()
+    .from('books_category')
+    .select('*')
+    .eq('slug', slug)
+    .single();
+
+  return data as BooksCategory | null;
+}
+
+/**
+ * 新增電子書
+ */
+export async function insertBook(book: BookInsert): Promise<Book> {
+  const { data, error } = await getSupabase()
+    .from('books')
+    .insert(book)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Book;
+}
+
+/**
+ * 根據 ID 取得電子書
+ */
+export async function getBookById(bookId: number): Promise<(Book & { category?: BooksCategory }) | null> {
+  const { data } = await getSupabase()
+    .from('books')
+    .select('*, category:category_id(*)')
+    .eq('id', bookId)
+    .single();
+
+  return data as (Book & { category?: BooksCategory }) | null;
+}
+
+/**
+ * 取得所有電子書
+ */
+export async function getBooks(options?: {
+  categoryId?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<(Book & { category?: BooksCategory })[]> {
+  let query = getSupabase()
+    .from('books')
+    .select('*, category:category_id(*)')
+    .order('created_at', { ascending: false });
+
+  if (options?.categoryId) {
+    query = query.eq('category_id', options.categoryId);
+  }
+  if (options?.limit) {
+    query = query.limit(options.limit);
+  }
+  if (options?.offset) {
+    query = query.range(options.offset, options.offset + (options.limit || 10) - 1);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data as (Book & { category?: BooksCategory })[];
+}
+
+/**
+ * 更新電子書
+ */
+export async function updateBook(
+  bookId: number,
+  updates: Partial<BookInsert>
+): Promise<Book> {
+  const { data, error } = await getSupabase()
+    .from('books')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', bookId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Book;
+}
+
+/**
+ * 刪除電子書
+ */
+export async function deleteBook(bookId: number): Promise<void> {
+  const { error } = await getSupabase()
+    .from('books')
+    .delete()
+    .eq('id', bookId);
+
+  if (error) throw error;
+}
+
+/**
+ * 上傳 PDF 到 Storage (使用 UUID 命名)
+ */
+export async function uploadBookPdf(
+  pdfBuffer: Buffer,
+  originalFilename?: string
+): Promise<{ path: string; publicUrl: string }> {
+  const uuid = randomUUID();
+  const path = `books/${uuid}.pdf`;
+
+  const { error } = await getSupabase()
+    .storage
+    .from('books')
+    .upload(path, pdfBuffer, {
+      contentType: 'application/pdf',
+      upsert: false,
+    });
+
+  if (error) throw error;
+
+  const { data } = getSupabase()
+    .storage
+    .from('books')
+    .getPublicUrl(path);
+
+  return {
+    path,
+    publicUrl: data.publicUrl,
+  };
+}
+
+/**
+ * 增加電子書點擊數
+ */
+export async function incrementBookHits(bookId: number): Promise<void> {
+  const { error } = await getSupabase().rpc('increment_book_hits', { book_id: bookId });
+
+  // 如果 RPC 不存在，使用傳統方式
+  if (error) {
+    const book = await getBookById(bookId);
+    if (book) {
+      await getSupabase()
+        .from('books')
+        .update({ hits: (book.hits || 0) + 1 })
+        .eq('id', bookId);
+    }
+  }
 }

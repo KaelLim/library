@@ -145,6 +145,7 @@ export class TcSidebar extends LitElement {
 
           <nav class="nav">
             <tc-nav-item icon="newspaper" label="週報列表" href="/"></tc-nav-item>
+            <tc-nav-item icon="book-open" label="電子書" href="/books"></tc-nav-item>
             <tc-nav-item icon="scroll-text" label="審計日誌" href="/logs"></tc-nav-item>
           </nav>
         </div>

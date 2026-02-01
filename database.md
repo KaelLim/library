@@ -72,3 +72,67 @@ create index idx_audit_logs_action on public.audit_logs using btree (action);
 create index idx_audit_logs_table_record on public.audit_logs using btree (table_name, record_id);
 create index idx_audit_logs_created_at on public.audit_logs using btree (created_at desc);
 create index idx_audit_logs_user_email on public.audit_logs using btree (user_email);
+
+-- =============================================
+-- 電子書系統
+-- =============================================
+
+create table public.books_category (
+  id bigserial not null,
+  name text not null,
+  slug text,
+  folder_id text,                     -- FlipHTML5 資料夾 ID
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint books_category_pkey primary key (id),
+  constraint books_category_name_key unique (name)
+);
+
+create table public.books (
+  id bigserial not null,
+  category_id bigint references public.books_category(id) on delete set null,
+
+  -- FlipHTML5 相關
+  book_url text,
+  book_id text,
+  thumbnail_url text,
+
+  -- 書籍資訊
+  title text not null,
+  introtext text,
+  catalogue text,
+
+  -- 作者/出版
+  author text,
+  author_introtext text,
+  publisher text,
+  book_date date,
+  isbn text,
+
+  -- 檔案
+  pdf_path text,
+  cover_image text,
+
+  -- 設定
+  language text default 'zh-TW',
+  turn_page text default 'left',
+  copyright text,
+  download boolean default true,
+  online_purchase text,
+
+  -- 統計
+  hits integer default 0,
+
+  -- 時間戳
+  publish_date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint books_pkey primary key (id),
+  constraint books_turn_page_check check (turn_page in ('left', 'right'))
+);
+
+create index idx_books_category_id on public.books using btree (category_id);
+create index idx_books_created_at on public.books using btree (created_at desc);
+create index idx_books_title on public.books using btree (title);
