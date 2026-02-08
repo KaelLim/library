@@ -2,3 +2,5 @@
 volumes/db/data
 volumes/storage
 *.tar.gz
+volumes/claude-credentials/
+volumes/storage-backup/

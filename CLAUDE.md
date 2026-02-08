@@ -64,7 +64,7 @@ See `database.md` for full schema.
 **週報系統**
 - `weekly` - 週報期數 (week_number PK, status: draft/published/archived)
 - `articles` - 文稿 (platform: 'docs'/'digital', description 供 SEO)
-- `category` - 8 個固定分類
+- `category` - 8 個固定分類（AI 解析時必須使用既有 category_id 1-8，不可建立新分類）
 
 **電子書系統**
 - `books` - 電子書 (book_id 對應 FlipHTML5, turn_page: left/right)
@@ -88,8 +88,10 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 
 - **ESM modules** - All imports use `.js` extension
 - **Platform field** - Articles: 'docs' (原稿) / 'digital' (AI改寫版)
+- **Fixed categories** - category_id 1-8 固定不變，AI 解析只能從中選擇，不可新增
 - **turn_page** - Books: 'left' (中文右翻左) / 'right' (英文左翻右)
 - **Audit logging** - All DB operations logged to `audit_logs`
+- **Storage** - 使用 Docker named volume（macOS xattr 相容），需用 `docker cp` 備份
 
 ## Claude Agent SDK
 

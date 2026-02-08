@@ -6,6 +6,7 @@ export interface ParsedArticle {
 }
 
 export interface ParsedCategory {
+  category_id: number;
   name: string;
   sort_order: number;
   articles: ParsedArticle[];

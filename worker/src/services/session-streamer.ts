@@ -31,13 +31,21 @@ async function getOrCreateChannel(weeklyId: number): Promise<RealtimeChannel> {
 
   const channel = getSupabase().channel(`import:${weeklyId}`);
 
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      console.log(`[Query] Channel subscribe timeout for weekly ${weeklyId}, proceeding with REST fallback`);
+      resolve();
+    }, 5000);
+
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
+        clearTimeout(timeout);
         console.log(`[Query] Channel subscribed for weekly ${weeklyId}`);
         resolve();
       } else if (status === 'CHANNEL_ERROR') {
-        reject(new Error('Failed to subscribe to channel'));
+        clearTimeout(timeout);
+        console.log(`[Query] Channel error for weekly ${weeklyId}, proceeding with REST fallback`);
+        resolve();
       }
     });
   });

@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Set PATH for Claude Code
-ENV PATH="/root/.claude/bin:$PATH"
+ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /app
 

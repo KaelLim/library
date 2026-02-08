@@ -579,6 +579,9 @@ services:
       # FlipHTML5 電子書 API
       FLIPHTML5_ACCESS_KEY_ID: ${FLIPHTML5_ACCESS_KEY_ID}
       FLIPHTML5_ACCESS_KEY_SECRET: ${FLIPHTML5_ACCESS_KEY_SECRET}
+    volumes:
+      - ../.claude/skills:/.claude/skills:ro
+      - claude-credentials:/root/.claude
     healthcheck:
       test: ["CMD", "curl", "-sSf", "http://localhost:3001/health"]
       interval: 10s
@@ -587,3 +590,4 @@ services:
 
 volumes:
   db-config:
+  claude-credentials:

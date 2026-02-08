@@ -6,7 +6,6 @@ import { cleanupChannel } from './services/session-streamer.js';
 import {
   initSupabase,
   getOrCreateWeekly,
-  getOrCreateCategory,
   insertArticle,
   uploadMarkdown,
   writeAuditLog,
@@ -112,15 +111,13 @@ export async function runImportWorker(
     await updateProgress('importing_docs', `匯入原稿中... 0/${totalArticles}`);
 
     for (const category of parsed.categories) {
-      const dbCategory = await getOrCreateCategory(category.name, category.sort_order);
-
       for (const article of category.articles) {
         // 生成 description
         const description = await generateDescription(article.title, article.content, category.name);
 
         const inserted = await insertArticle({
           weekly_id: weeklyId,
-          category_id: dbCategory.id,
+          category_id: category.category_id,
           platform: 'docs',
           title: article.title,
           description,
@@ -147,14 +144,12 @@ export async function runImportWorker(
     await updateProgress('ai_rewriting', `AI 改寫中... 0/${totalArticles}`);
 
     for (const category of parsed.categories) {
-      const dbCategory = await getOrCreateCategory(category.name, category.sort_order);
-
       for (const article of category.articles) {
         const rewritten = await rewriteForDigital(article.title, article.content, weeklyId, category.name);
 
         const inserted = await insertArticle({
           weekly_id: weeklyId,
-          category_id: dbCategory.id,
+          category_id: category.category_id,
           platform: 'digital',
           title: rewritten.title,
           description: rewritten.description,
