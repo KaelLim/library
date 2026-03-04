@@ -11,7 +11,7 @@ services:
 
   studio:
     container_name: supabase-studio
-    image: ghcr.io/kaellim/supabase-studio:latest
+    image: ${STUDIO_IMAGE:-ghcr.io/kaellim/supabase-mac:latest}
     restart: unless-stopped
     healthcheck:
       test:
