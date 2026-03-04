@@ -1,5 +1,8 @@
 import 'dotenv/config';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import Fastify from 'fastify';
+import fastifyStatic from '@fastify/static';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { runImportWorker } from './worker.js';
@@ -12,23 +15,22 @@ import {
   insertAuditLog,
   updateArticle,
   getArticlesWithoutDescription,
-  // Books
   getBooksCategories,
   getBooksCategoryBySlug,
   insertBook,
   getBooks,
   getBookById,
+  getBookByPdfPath,
+  incrementBookHits,
   updateBook,
   deleteBook,
   uploadBookPdf,
+  uploadBookThumbnail,
+  getBooksWithoutThumbnail,
+  downloadBookPdf,
 } from './services/supabase.js';
-import {
-  createFlipBookFromPdf,
-  getDefaultBookConfig,
-  updateFlipBookConfig,
-  turnPageToRightToLeft,
-} from './services/fliphtml5.js';
-import { compressPdf, isGhostscriptAvailable } from './services/pdf-compressor.js';
+import { compressPdf, extractPdfThumbnail, isGhostscriptAvailable } from './services/pdf-compressor.js';
+import { apiV1Routes } from './routes/api-v1.js';
 
 // Initialize Supabase
 initSupabase();
@@ -48,6 +50,96 @@ await fastify.register(multipart, {
     fileSize: 1024 * 1024 * 500, // 500MB max
   },
 });
+
+// ===========================================
+// PDF Reader 靜態檔案 + SSR
+// ===========================================
+
+const BOOKS_DIR = process.env.BOOKS_DIR || join(process.cwd(), 'books');
+
+// 靜態檔案服務（reply.sendFile）
+await fastify.register(fastifyStatic, {
+  root: BOOKS_DIR,
+  prefix: '/books/r/',
+  serve: false, // 不自動註冊路由，由 SSR handler 統一處理
+});
+
+// 讀取 index.html 模板（啟動時一次性載入）
+let bookTemplate = '';
+try {
+  bookTemplate = readFileSync(join(BOOKS_DIR, 'index.html'), 'utf-8');
+} catch {
+  console.warn('[Books] index.html not found in', BOOKS_DIR);
+}
+
+// SSR 路由 + 靜態檔案：/books/r/*
+const STATIC_FILES = new Set(['style.css', 'app.js', 'page-flip.mp3']);
+
+fastify.get<{
+  Params: { '*': string };
+}>('/books/r/*', async (request, reply) => {
+  const wildcard = request.params['*']; // e.g. "2f4d6a72-..." or "style.css"
+
+  // 靜態檔案直接回傳
+  if (STATIC_FILES.has(wildcard)) {
+    return reply.sendFile(wildcard);
+  }
+
+  // UUID → storage path: books/{uuid}.pdf
+  const pdfPath = `books/${wildcard}.pdf`;
+
+  if (!bookTemplate) {
+    return reply.status(500).send({ error: 'Reader template not found' });
+  }
+
+  // 查詢 DB 取得書籍資料
+  const book = await getBookByPdfPath(pdfPath);
+  if (!book) {
+    return reply.status(404).send({ error: 'Book not found' });
+  }
+
+  const pdfSrc = `/storage/v1/object/public/books/${pdfPath}`;
+  const ogImage = book.thumbnail_url || '';
+  const ogDescription = book.introtext || '';
+  const ogAuthor = book.author || '';
+
+  // 注入 meta tags 和 config
+  const injectedHtml = bookTemplate
+    .replace(
+      '<title>PDF Page Flip Demo</title>',
+      `<title>${escapeHtml(book.title)}</title>
+    <meta property="og:title" content="${escapeAttr(book.title)}" />
+    <meta property="og:description" content="${escapeAttr(ogDescription)}" />
+    <meta property="og:image" content="${escapeAttr(ogImage)}" />
+    <meta property="og:type" content="book" />
+    <meta property="book:author" content="${escapeAttr(ogAuthor)}" />
+    <meta name="description" content="${escapeAttr(ogDescription)}" />`
+    )
+    .replace(
+      '</head>',
+      `<script>window.__BOOK_CONFIG__=${JSON.stringify({
+        pdfSrc,
+        turnPage: book.turn_page,
+        title: book.title,
+      })};</script>\n</head>`
+    );
+
+  // 背景更新點擊數
+  incrementBookHits(book.id).catch(() => {});
+
+  return reply.type('text/html').send(injectedHtml);
+});
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttr(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Public API v1
+await fastify.register(apiV1Routes, { prefix: '/api/v1' });
 
 // Health check
 fastify.get('/health', async () => {
@@ -304,10 +396,6 @@ fastify.get('/articles-without-description', async () => {
 });
 
 // ===========================================
-// FlipHTML5 電子書 API
-// ===========================================
-
-// ===========================================
 // Books 電子書 API
 // ===========================================
 
@@ -351,7 +439,7 @@ fastify.get<{
   return { success: true, book };
 });
 
-// 創建電子書（上傳 PDF + FlipHTML5 + 資料庫）
+// 創建電子書（上傳 PDF + 資料庫）
 fastify.post('/books/create', async (request, reply) => {
   try {
     const data = await request.file();
@@ -365,23 +453,19 @@ fastify.post('/books/create', async (request, reply) => {
 
     // Get form fields
     const fields: Record<string, string> = {};
-    console.log('[Books] Field keys:', Object.keys(data.fields));
     for (const [key, value] of Object.entries(data.fields)) {
-      if (key === 'pdf_file') continue; // Skip file field
-      console.log(`[Books] Field "${key}":`, typeof value);
+      if (key === 'pdf_file') continue;
       if (value && typeof value === 'object' && 'value' in value) {
         fields[key] = (value as { value: string }).value;
       } else if (typeof value === 'string') {
         fields[key] = value;
       } else if (Array.isArray(value) && value.length > 0) {
-        // Handle array of field values (multiple same-name fields)
         const firstValue = value[0] as { value?: string };
         if (typeof firstValue === 'object' && firstValue.value) {
           fields[key] = firstValue.value;
         }
       }
     }
-    console.log('[Books] Parsed fields:', fields);
 
     const title = fields.title;
     if (!title) {
@@ -422,58 +506,35 @@ fastify.post('/books/create', async (request, reply) => {
     const storageResult = await uploadBookPdf(pdfBuffer, data.filename);
     console.log(`[Books] PDF uploaded: ${storageResult.path}`);
 
-    // 2. 取得分類資訊（包含 folder_id）
-    let folderId: number | undefined;
+    // 1.5 擷取第一頁縮圖
+    let thumbnailUrl = fields.thumbnail_url || null;
+    if (!thumbnailUrl) {
+      const uuid = storageResult.path.replace(/^books\//, '').replace(/\.pdf$/, '');
+      const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
+      if (thumbBuffer) {
+        thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
+        console.log(`[Books] Thumbnail generated: ${thumbnailUrl}`);
+      }
+    }
+
+    // 2. 取得分類資訊
     let categoryId: number | undefined;
-    let category: Awaited<ReturnType<typeof getBooksCategoryBySlug>> = null;
 
     if (fields.category_id) {
       categoryId = parseInt(fields.category_id, 10);
-      // 根據 ID 取得分類以獲取 folder_id
-      const categories = await getBooksCategories();
-      category = categories.find(c => c.id === categoryId) || null;
     } else if (fields.category_slug) {
-      category = await getBooksCategoryBySlug(fields.category_slug);
+      const category = await getBooksCategoryBySlug(fields.category_slug);
       if (category) {
         categoryId = category.id;
       }
     }
 
-    // 優先順序：手動指定 > 分類的 folder_id
-    if (fields.folder_id) {
-      folderId = parseInt(fields.folder_id, 10);
-    } else if (category?.folder_id) {
-      folderId = parseInt(category.folder_id, 10);
-    }
-
-    // 3. 上傳到 FlipHTML5 並創建電子書
-    console.log('[Books] Creating FlipBook...');
-    const flipResult = await createFlipBookFromPdf(pdfBuffer, `${title}.pdf`, title, {
-      description: fields.introtext || fields.description,
-      folderId,
-      metadata: {
-        author: fields.author,
-        publisher: fields.publisher,
-        isbn: fields.isbn,
-        book_date: fields.book_date,
-      },
-    });
-
-    if (!flipResult.success) {
-      return reply.status(500).send({
-        error: 'FLIPBOOK_CREATE_FAILED',
-        message: flipResult.message,
-      });
-    }
-
-    console.log(`[Books] FlipBook created: ${flipResult.bookId}`);
-
-    // 4. 寫入資料庫
+    // 3. 寫入資料庫
     const book = await insertBook({
       category_id: categoryId || null,
-      book_url: flipResult.bookUrl || null,
-      book_id: flipResult.bookId || null,
-      thumbnail_url: flipResult.thumbnailUrl || null,
+      book_url: fields.book_url || null,
+      book_id: fields.book_id || null,
+      thumbnail_url: thumbnailUrl,
       title,
       introtext: fields.introtext || fields.description || null,
       catalogue: fields.catalogue || null,
@@ -483,7 +544,7 @@ fastify.post('/books/create', async (request, reply) => {
       book_date: fields.book_date || null,
       isbn: fields.isbn || null,
       pdf_path: storageResult.path,
-      cover_image: flipResult.thumbnailUrl || fields.cover_image || null,
+      cover_image: fields.cover_image || null,
       language: fields.language || 'zh-TW',
       turn_page: (fields.turn_page as 'left' | 'right') || 'left',
       copyright: fields.copyright || null,
@@ -494,17 +555,16 @@ fastify.post('/books/create', async (request, reply) => {
 
     console.log(`[Books] Book record created: ${book.id}`);
 
-    // 5. 記錄 audit log
+    // 4. 記錄 audit log
     await insertAuditLog({
       user_email: fields.user_email || null,
       action: 'create_book',
       table_name: 'books',
       record_id: book.id,
       old_data: null,
-      new_data: { title, book_id: flipResult.bookId },
+      new_data: { title },
       metadata: {
         pdf_path: storageResult.path,
-        book_url: flipResult.bookUrl,
         compression: compressionInfo,
       },
     });
@@ -516,7 +576,6 @@ fastify.post('/books/create', async (request, reply) => {
         id: book.id,
         title: book.title,
         book_url: book.book_url,
-        book_id: book.book_id,
         thumbnail_url: book.thumbnail_url,
         pdf_path: book.pdf_path,
       },
@@ -542,35 +601,9 @@ fastify.put<{
   Body: Record<string, unknown>;
 }>('/books/:id', async (request, reply) => {
   const bookId = parseInt(request.params.id, 10);
-  const updates = request.body as {
-    turn_page?: 'left' | 'right';
-    [key: string]: unknown;
-  };
+  const updates = request.body;
 
   try {
-    // 先取得現有書籍資料
-    const existingBook = await getBookById(bookId);
-    if (!existingBook) {
-      return reply.status(404).send({
-        error: 'BOOK_NOT_FOUND',
-        message: `Book ${bookId} not found`,
-      });
-    }
-
-    // 如果 turn_page 有變更，同步更新 FlipHTML5
-    if (updates.turn_page && existingBook.book_id && updates.turn_page !== existingBook.turn_page) {
-      console.log(`[Books] Syncing turn_page to FlipHTML5: ${updates.turn_page}`);
-      const flipResult = await updateFlipBookConfig(existingBook.book_id, {
-        RightToLeft: turnPageToRightToLeft(updates.turn_page),
-      });
-
-      if (!flipResult.success) {
-        console.warn(`[Books] FlipHTML5 sync failed: ${flipResult.message}`);
-        // 不阻止更新，只是警告
-      }
-    }
-
-    // 更新資料庫
     const book = await updateBook(bookId, updates as any);
     return { success: true, book };
   } catch (error) {
@@ -598,14 +631,6 @@ fastify.delete<{
   }
 });
 
-// Get default FlipBook config (for reference)
-fastify.get('/books/fliphtml5-config', async () => {
-  return {
-    success: true,
-    config: getDefaultBookConfig(),
-  };
-});
-
 // 檢查 PDF 壓縮功能狀態
 fastify.get('/books/compression-status', async () => {
   const gsAvailable = await isGhostscriptAvailable();
@@ -619,6 +644,72 @@ fastify.get('/books/compression-status', async () => {
       ? 'PDF 壓縮功能正常'
       : '需要安裝 Ghostscript 才能啟用壓縮功能',
   };
+});
+
+// 批次產生缺少縮圖的書籍縮圖
+fastify.post<{
+  Body: { limit?: number };
+}>('/books/generate-thumbnails', async (request, reply) => {
+  const { limit = 20 } = request.body || {};
+
+  try {
+    const books = await getBooksWithoutThumbnail(limit);
+
+    if (books.length === 0) {
+      return { success: true, message: 'All books have thumbnails', processed: 0 };
+    }
+
+    // 回傳 202，背景處理
+    reply.status(202).send({
+      success: true,
+      message: `Processing ${books.length} books`,
+      processing: books.length,
+    });
+
+    let success = 0;
+    let failed = 0;
+
+    for (const book of books) {
+      try {
+        if (!book.pdf_path) continue;
+
+        // 下載 PDF
+        const pdfBuffer = await downloadBookPdf(book.pdf_path);
+        if (!pdfBuffer) {
+          console.warn(`[Thumbnails] PDF not found: ${book.pdf_path}`);
+          failed++;
+          continue;
+        }
+
+        // 擷取縮圖
+        const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
+        if (!thumbBuffer) {
+          failed++;
+          continue;
+        }
+
+        // 上傳縮圖
+        const uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
+        const thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
+
+        // 更新 DB
+        await updateBook(book.id, { thumbnail_url: thumbnailUrl });
+        console.log(`[Thumbnails] ${book.id}: ${book.title} → ${thumbnailUrl}`);
+        success++;
+      } catch (err) {
+        console.error(`[Thumbnails] ${book.id} failed:`, err);
+        failed++;
+      }
+    }
+
+    console.log(`[Thumbnails] Done: ${success} success, ${failed} failed`);
+  } catch (error) {
+    console.error('[Thumbnails] Batch failed:', error);
+    return reply.status(500).send({
+      error: 'THUMBNAIL_BATCH_ERROR',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
 });
 
 // Start server
