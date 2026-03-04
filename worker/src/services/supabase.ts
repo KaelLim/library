@@ -138,12 +138,8 @@ export async function uploadToStorage(
 
   if (error) throw error;
 
-  const { data } = getSupabase()
-    .storage
-    .from(bucket)
-    .getPublicUrl(path);
-
-  return data.publicUrl;
+  // 返回相對路徑，避免 Docker 內部 URL (kong:8000) 被寫入內容
+  return `/storage/v1/object/public/${bucket}/${path}`;
 }
 
 export async function uploadImage(
@@ -361,12 +357,9 @@ export async function getBooks(options?: {
   if (options?.categoryId) {
     query = query.eq('category_id', options.categoryId);
   }
-  if (options?.limit) {
-    query = query.limit(options.limit);
-  }
-  if (options?.offset) {
-    query = query.range(options.offset, options.offset + (options.limit || 10) - 1);
-  }
+  const limit = options?.limit || 10;
+  const offset = options?.offset ?? 0;
+  query = query.range(offset, offset + limit - 1);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -432,6 +425,71 @@ export async function uploadBookPdf(
     path,
     publicUrl: data.publicUrl,
   };
+}
+
+/**
+ * 上傳書籍縮圖到 Storage
+ */
+export async function uploadBookThumbnail(
+  jpegBuffer: Buffer,
+  uuid: string
+): Promise<string> {
+  const path = `thumbnails/${uuid}.jpg`;
+
+  const { error } = await getSupabase()
+    .storage
+    .from('books')
+    .upload(path, jpegBuffer, {
+      contentType: 'image/jpeg',
+      upsert: true,
+    });
+
+  if (error) throw error;
+
+  // 使用相對路徑，避免存入 Docker 內部 URL
+  return `/storage/v1/object/public/books/${path}`;
+}
+
+/**
+ * 取得沒有縮圖的書籍
+ */
+export async function getBooksWithoutThumbnail(limit = 20): Promise<Book[]> {
+  const { data, error } = await getSupabase()
+    .from('books')
+    .select('*')
+    .or('thumbnail_url.is.null,thumbnail_url.eq.')
+    .not('pdf_path', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return (data || []) as Book[];
+}
+
+/**
+ * 從 Storage 下載 PDF
+ */
+export async function downloadBookPdf(pdfPath: string): Promise<Buffer | null> {
+  const { data, error } = await getSupabase()
+    .storage
+    .from('books')
+    .download(pdfPath);
+
+  if (error || !data) return null;
+  return Buffer.from(await data.arrayBuffer());
+}
+
+/**
+ * 根據 pdf_path 取得電子書
+ */
+export async function getBookByPdfPath(pdfPath: string): Promise<Book | null> {
+  const { data } = await getSupabase()
+    .from('books')
+    .select('*')
+    .eq('pdf_path', pdfPath)
+    .single();
+
+  return data as Book | null;
 }
 
 /**

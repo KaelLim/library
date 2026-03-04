@@ -115,28 +115,29 @@ export class PageWeeklyDetail extends LitElement {
       gap: 12px;
     }
 
-    .tabs-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      padding-bottom: 0;
-      border-bottom: 1px solid var(--color-border);
-      margin-bottom: 24px;
-    }
-
     .tabs-container {
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 24px;
     }
 
     .version-toggle {
       display: flex;
       align-items: center;
+      justify-content: flex-end;
       gap: 8px;
-      padding-bottom: 8px;
-      flex-shrink: 0;
+      padding: 8px 0;
+    }
+
+    .tabs-row {
+      overflow-x: auto;
+      border-bottom: 1px solid var(--color-border);
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+
+    .tabs-row::-webkit-scrollbar {
+      display: none;
     }
 
     .toggle-label {
@@ -382,16 +383,8 @@ export class PageWeeklyDetail extends LitElement {
           </div>
         </div>
 
-        <!-- Tabs Row -->
-        <div class="tabs-row">
-          <div class="tabs-container">
-            <tc-category-tabs
-              .categories=${this.categories}
-              .counts=${this.articleCounts}
-              activeCategory=${this.activeCategory}
-              @tc-category-change=${this.handleCategoryChange}
-            ></tc-category-tabs>
-          </div>
+        <!-- Tabs Container -->
+        <div class="tabs-container">
           <div class="version-toggle">
             <span class="toggle-label">版本：</span>
             <button
@@ -406,6 +399,14 @@ export class PageWeeklyDetail extends LitElement {
             >
               數位版
             </button>
+          </div>
+          <div class="tabs-row">
+            <tc-category-tabs
+              .categories=${this.categories}
+              .counts=${this.articleCounts}
+              activeCategory=${this.activeCategory}
+              @tc-category-change=${this.handleCategoryChange}
+            ></tc-category-tabs>
           </div>
         </div>
 

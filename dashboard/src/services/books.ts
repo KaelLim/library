@@ -94,7 +94,7 @@ export async function getBook(id: number): Promise<BookWithCategory | null> {
 }
 
 /**
- * 更新書籍（透過 Worker API 以同步 FlipHTML5）
+ * 更新書籍（透過 Worker API）
  */
 export async function updateBook(id: number, updates: Partial<Omit<Book, 'id' | 'created_at' | 'updated_at'>>): Promise<Book> {
   const response = await fetch(`/worker/books/${id}`, {

@@ -254,7 +254,7 @@ export class TcBookUploadDialog extends LitElement {
   @state() private showAdvanced = false;
 
   // 基本欄位
-  @state() private title = '';
+  @state() private bookTitle = '';
   @state() private categoryId = '';
   @state() private introtext = '';
   @state() private author = '';
@@ -358,9 +358,9 @@ export class TcBookUploadDialog extends LitElement {
             <label>書名 <span class="required">*</span></label>
             <input
               type="text"
-              .value=${this.title}
+              .value=${this.bookTitle}
               placeholder="輸入書籍名稱"
-              @input=${(e: Event) => (this.title = (e.target as HTMLInputElement).value)}
+              @input=${(e: Event) => (this.bookTitle = (e.target as HTMLInputElement).value)}
             />
           </div>
 
@@ -537,7 +537,7 @@ export class TcBookUploadDialog extends LitElement {
   }
 
   private get canSubmit(): boolean {
-    return !!this.selectedFile && !!this.title.trim() && !!this.categoryId;
+    return !!this.selectedFile && !!this.bookTitle.trim() && !!this.categoryId;
   }
 
   private handleFileClick(): void {
@@ -553,8 +553,8 @@ export class TcBookUploadDialog extends LitElement {
     const file = e.dataTransfer?.files[0];
     if (file && file.type === 'application/pdf') {
       this.selectedFile = file;
-      if (!this.title) {
-        this.title = file.name.replace(/\.pdf$/i, '');
+      if (!this.bookTitle) {
+        this.bookTitle = file.name.replace(/\.pdf$/i, '');
       }
     }
   }
@@ -564,8 +564,8 @@ export class TcBookUploadDialog extends LitElement {
     const file = input.files?.[0];
     if (file) {
       this.selectedFile = file;
-      if (!this.title) {
-        this.title = file.name.replace(/\.pdf$/i, '');
+      if (!this.bookTitle) {
+        this.bookTitle = file.name.replace(/\.pdf$/i, '');
       }
     }
   }
@@ -585,7 +585,7 @@ export class TcBookUploadDialog extends LitElement {
 
   private resetForm(): void {
     this.selectedFile = null;
-    this.title = '';
+    this.bookTitle = '';
     this.introtext = '';
     this.author = '';
     this.authorIntrotext = '';
@@ -614,7 +614,7 @@ export class TcBookUploadDialog extends LitElement {
 
       // IMPORTANT: All text fields must come BEFORE the file
       // @fastify/multipart's request.file() only captures fields before the file
-      formData.append('title', this.title.trim());
+      formData.append('title', this.bookTitle.trim());
       formData.append('category_id', this.categoryId);
 
       // 基本欄位

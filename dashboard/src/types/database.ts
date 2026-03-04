@@ -35,7 +35,7 @@ export interface Article {
 export interface AuditLog {
   id: number;
   user_email: string | null;
-  action: 'login' | 'logout' | 'insert' | 'update' | 'delete' | 'import' | 'ai_transform';
+  action: 'login' | 'logout' | 'insert' | 'update' | 'delete' | 'import' | 'ai_transform' | 'create_book' | 'upload_pdf';
   table_name: string | null;
   record_id: number | null;
   old_data: Record<string, unknown> | null;

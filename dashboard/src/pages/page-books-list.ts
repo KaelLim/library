@@ -212,7 +212,9 @@ export class PageBooksList extends LitElement {
   private getCategoryCounts(): Record<string, number> {
     const counts: Record<string, number> = { all: this.books.length };
     for (const book of this.books) {
-      counts[book.category_id] = (counts[book.category_id] || 0) + 1;
+      if (book.category_id != null) {
+        counts[book.category_id] = (counts[book.category_id] || 0) + 1;
+      }
     }
     return counts;
   }
@@ -312,7 +314,7 @@ export class PageBooksList extends LitElement {
           <div class="book-title">${book.title}</div>
           ${book.author ? html`<div class="book-author">${book.author}</div>` : ''}
           <div class="book-actions">
-            ${book.book_url
+            ${book.pdf_path
               ? html`
                   <tc-button
                     variant="primary"
@@ -386,8 +388,9 @@ export class PageBooksList extends LitElement {
   }
 
   private handleView(book: BookWithCategory): void {
-    if (book.book_url) {
-      window.open(book.book_url, '_blank');
+    if (book.pdf_path) {
+      const uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
+      window.open(`/books/r/${uuid}`, '_blank');
     }
   }
 

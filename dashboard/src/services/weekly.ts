@@ -92,6 +92,14 @@ export async function updateWeeklyStatus(
 }
 
 export async function deleteWeekly(weekNumber: number): Promise<void> {
+  // 1. 清理 Storage 檔案
+  try {
+    await cleanupWeeklyStorage(weekNumber);
+  } catch (err) {
+    console.warn('Storage cleanup failed (continuing with delete):', err);
+  }
+
+  // 2. 刪除 weekly 記錄（CASCADE 自動刪除 articles）
   const { error } = await supabase
     .from('weekly')
     .delete()
@@ -100,6 +108,53 @@ export async function deleteWeekly(weekNumber: number): Promise<void> {
   if (error) {
     console.error('Error deleting weekly:', error);
     throw new Error(error.message);
+  }
+}
+
+/**
+ * 清理 Storage bucket 中該期週報的所有檔案
+ * 路徑結構: weekly/articles/{weekNumber}/images/*, weekly/articles/{weekNumber}/*.md
+ */
+async function cleanupWeeklyStorage(weekNumber: number): Promise<void> {
+  const basePath = `articles/${weekNumber}`;
+  const filePaths: string[] = [];
+
+  const { data: entries, error: listError } = await supabase.storage
+    .from('weekly')
+    .list(basePath, { limit: 1000 });
+
+  if (listError || !entries?.length) return;
+
+  for (const entry of entries) {
+    if (entry.id) {
+      // 檔案
+      filePaths.push(`${basePath}/${entry.name}`);
+    } else {
+      // 資料夾（如 images/），遞迴列出內容
+      const { data: subEntries } = await supabase.storage
+        .from('weekly')
+        .list(`${basePath}/${entry.name}`, { limit: 1000 });
+
+      if (subEntries) {
+        for (const sub of subEntries) {
+          if (sub.id) {
+            filePaths.push(`${basePath}/${entry.name}/${sub.name}`);
+          }
+        }
+      }
+    }
+  }
+
+  if (filePaths.length > 0) {
+    const { error: removeError } = await supabase.storage
+      .from('weekly')
+      .remove(filePaths);
+
+    if (removeError) {
+      console.warn('Failed to remove storage files:', removeError);
+    } else {
+      console.log(`Cleaned up ${filePaths.length} storage files for weekly ${weekNumber}`);
+    }
   }
 }
 

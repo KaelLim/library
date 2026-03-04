@@ -113,10 +113,10 @@ export class TcArticleCard extends LitElement {
       .replace(/\*(.+?)\*/g, '$1')
       .replace(/__(.+?)__/g, '$1')
       .replace(/_(.+?)_/g, '$1')
+      // Images → (圖片) alt text（必須在 links 之前處理）
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, (_match, alt) => alt ? `(圖片) ${alt}` : '(圖片)')
       // Remove links, keep text
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      // Remove images
-      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
       // Remove code blocks
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`([^`]+)`/g, '$1')

@@ -15,6 +15,7 @@ export function findBase64Images(markdown: string): ImageMatch[] {
   const matches: ImageMatch[] = [];
   let match;
 
+  BASE64_IMAGE_REGEX.lastIndex = 0;
   while ((match = BASE64_IMAGE_REGEX.exec(markdown)) !== null) {
     matches.push({
       fullMatch: match[0],
@@ -81,6 +82,7 @@ export async function processReferenceStyleImages(
   const definitions: Map<string, { mimeType: string; base64: string }> = new Map();
   let match;
 
+  REFERENCE_IMAGE_DEF_REGEX.lastIndex = 0;
   while ((match = REFERENCE_IMAGE_DEF_REGEX.exec(markdown)) !== null) {
     definitions.set(match[1], {
       mimeType: match[2],

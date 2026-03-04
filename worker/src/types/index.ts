@@ -66,7 +66,7 @@ export interface BooksCategory {
   id: number;
   name: string;
   slug: string | null;
-  folder_id: string | null;  // FlipHTML5 資料夾 ID
+  folder_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -76,7 +76,7 @@ export interface Book {
   id: number;
   category_id: number | null;
 
-  // FlipHTML5 相關
+  // 外部連結
   book_url: string | null;
   book_id: string | null;
   thumbnail_url: string | null;

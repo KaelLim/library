@@ -173,6 +173,66 @@ function formatBytes(bytes: number): string {
 }
 
 /**
+ * 從 PDF 第一頁擷取 JPEG 縮圖
+ */
+export async function extractPdfThumbnail(
+  pdfBuffer: Buffer,
+  options: { dpi?: number; quality?: number } = {}
+): Promise<Buffer | null> {
+  const dpi = options.dpi || 150;
+  const jpegQ = options.quality || 85;
+
+  const gsAvailable = await isGhostscriptAvailable();
+  if (!gsAvailable) {
+    console.warn('[PDF Thumbnail] Ghostscript not available');
+    return null;
+  }
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'pdf-thumb-'));
+  const inputPath = join(tempDir, `input-${randomUUID()}.pdf`);
+  const outputPath = join(tempDir, `thumb-${randomUUID()}.jpg`);
+
+  try {
+    await writeFile(inputPath, pdfBuffer);
+
+    const gsArgs = [
+      '-dFirstPage=1',
+      '-dLastPage=1',
+      '-sDEVICE=jpeg',
+      `-dJPEGQ=${jpegQ}`,
+      `-r${dpi}`,
+      '-dNOPAUSE',
+      '-dQUIET',
+      '-dBATCH',
+      '-dSAFER',
+      `-sOutputFile=${outputPath}`,
+      inputPath,
+    ];
+
+    await new Promise<void>((resolve, reject) => {
+      const gs = spawn('gs', gsArgs);
+      let stderr = '';
+      gs.stderr.on('data', (data) => { stderr += data.toString(); });
+      gs.on('error', (err) => reject(new Error(`Ghostscript error: ${err.message}`)));
+      gs.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Ghostscript exited with code ${code}: ${stderr}`));
+      });
+    });
+
+    const thumbBuffer = await readFile(outputPath);
+    console.log(`[PDF Thumbnail] Generated: ${formatBytes(thumbBuffer.length)}`);
+    return thumbBuffer;
+  } catch (err) {
+    console.error('[PDF Thumbnail] Failed:', err);
+    return null;
+  } finally {
+    await unlink(inputPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
+  }
+}
+
+/**
  * 快速壓縮（適合電子書）
  */
 export async function compressPdfForEbook(pdfBuffer: Buffer): Promise<Buffer> {

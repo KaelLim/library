@@ -121,7 +121,7 @@ fastify.get<{
         pdfSrc,
         turnPage: book.turn_page,
         title: book.title,
-      })};</script>\n</head>`
+      }).replace(/</g, '\\u003c')};</script>\n</head>`
     );
 
   // 背景更新點擊數
@@ -365,18 +365,19 @@ fastify.post<{
     });
 
     // 背景逐一處理
-    for (const article of articles) {
-      try {
-        const categoryName = article.category?.name || '未分類';
-        const description = await generateDescription(article.title, article.content, categoryName);
-        await updateArticle(article.id, { description });
-        console.log(`[${article.id}] Description generated: ${description.substring(0, 50)}...`);
-      } catch (err) {
-        console.error(`[${article.id}] Failed:`, err);
+    (async () => {
+      for (const article of articles) {
+        try {
+          const categoryName = article.category?.name || '未分類';
+          const description = await generateDescription(article.title, article.content, categoryName);
+          await updateArticle(article.id, { description });
+          console.log(`[${article.id}] Description generated: ${description.substring(0, 50)}...`);
+        } catch (err) {
+          console.error(`[${article.id}] Failed:`, err);
+        }
       }
-    }
-
-    console.log(`Batch description generation completed: ${articles.length} articles`);
+      console.log(`Batch description generation completed: ${articles.length} articles`);
+    })().catch(err => console.error('Batch generate descriptions failed:', err));
   } catch (error) {
     console.error('Batch generate descriptions failed:', error);
     return reply.status(500).send({
@@ -666,43 +667,46 @@ fastify.post<{
       processing: books.length,
     });
 
-    let success = 0;
-    let failed = 0;
+    // 背景逐一處理
+    (async () => {
+      let success = 0;
+      let failed = 0;
 
-    for (const book of books) {
-      try {
-        if (!book.pdf_path) continue;
+      for (const book of books) {
+        try {
+          if (!book.pdf_path) continue;
 
-        // 下載 PDF
-        const pdfBuffer = await downloadBookPdf(book.pdf_path);
-        if (!pdfBuffer) {
-          console.warn(`[Thumbnails] PDF not found: ${book.pdf_path}`);
+          // 下載 PDF
+          const pdfBuffer = await downloadBookPdf(book.pdf_path);
+          if (!pdfBuffer) {
+            console.warn(`[Thumbnails] PDF not found: ${book.pdf_path}`);
+            failed++;
+            continue;
+          }
+
+          // 擷取縮圖
+          const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
+          if (!thumbBuffer) {
+            failed++;
+            continue;
+          }
+
+          // 上傳縮圖
+          const uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
+          const thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
+
+          // 更新 DB
+          await updateBook(book.id, { thumbnail_url: thumbnailUrl });
+          console.log(`[Thumbnails] ${book.id}: ${book.title} → ${thumbnailUrl}`);
+          success++;
+        } catch (err) {
+          console.error(`[Thumbnails] ${book.id} failed:`, err);
           failed++;
-          continue;
         }
-
-        // 擷取縮圖
-        const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
-        if (!thumbBuffer) {
-          failed++;
-          continue;
-        }
-
-        // 上傳縮圖
-        const uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
-        const thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
-
-        // 更新 DB
-        await updateBook(book.id, { thumbnail_url: thumbnailUrl });
-        console.log(`[Thumbnails] ${book.id}: ${book.title} → ${thumbnailUrl}`);
-        success++;
-      } catch (err) {
-        console.error(`[Thumbnails] ${book.id} failed:`, err);
-        failed++;
       }
-    }
 
-    console.log(`[Thumbnails] Done: ${success} success, ${failed} failed`);
+      console.log(`[Thumbnails] Done: ${success} success, ${failed} failed`);
+    })().catch(err => console.error('[Thumbnails] Batch failed:', err));
   } catch (error) {
     console.error('[Thumbnails] Batch failed:', error);
     return reply.status(500).send({

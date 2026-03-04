@@ -11,9 +11,7 @@ services:
 
   studio:
     container_name: supabase-studio
-    build:
-      context: ./studio
-      dockerfile: Dockerfile
+    image: ghcr.io/kaellim/supabase-studio:latest
     restart: unless-stopped
     healthcheck:
       test:

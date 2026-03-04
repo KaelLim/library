@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS public.books (
 CREATE INDEX IF NOT EXISTS idx_books_category_id ON public.books USING BTREE (category_id);
 CREATE INDEX IF NOT EXISTS idx_books_created_at ON public.books USING BTREE (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_books_title ON public.books USING BTREE (title);
+CREATE INDEX IF NOT EXISTS idx_books_pdf_path ON public.books USING BTREE (pdf_path);
 
 -- 更新 audit_logs action check (需要先刪除再重建)
 ALTER TABLE public.audit_logs DROP CONSTRAINT IF EXISTS audit_logs_action_check;

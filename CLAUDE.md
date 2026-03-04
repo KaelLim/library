@@ -32,7 +32,7 @@ library/
 
 ```bash
 # Worker
-cd worker && npm run dev          # Development (:3000)
+cd worker && npm run dev          # Development (:3001)
 cd worker && npm run build        # Build TypeScript
 
 # Dashboard

@@ -220,7 +220,7 @@ export class TcBookEditDialog extends LitElement {
   @state() private showAdvanced = false;
 
   // 表單欄位
-  @state() private title = '';
+  @state() private bookTitle = '';
   @state() private categoryId = '';
   @state() private introtext = '';
   @state() private author = '';
@@ -257,7 +257,7 @@ export class TcBookEditDialog extends LitElement {
   private loadBookData(): void {
     if (!this.book) return;
 
-    this.title = this.book.title || '';
+    this.bookTitle = this.book.title || '';
     this.categoryId = this.book.category_id ? String(this.book.category_id) : '';
     this.introtext = this.book.introtext || '';
     this.author = this.book.author || '';
@@ -291,9 +291,9 @@ export class TcBookEditDialog extends LitElement {
               : ''}
             <div class="book-meta">
               <div>ID: ${this.book.id}</div>
-              <div>FlipHTML5 ID: ${this.book.book_id || '-'}</div>
-              ${this.book.book_url
-                ? html`<div><a href=${this.book.book_url} target="_blank">查看電子書 ↗</a></div>`
+              <div>Book ID: ${this.book.book_id || '-'}</div>
+              ${this.book.pdf_path
+                ? html`<div><a href="/books/r/${this.book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '')}" target="_blank">閱讀電子書 ↗</a></div>`
                 : ''}
               <div>建立時間: ${this.book.created_at ? new Date(this.book.created_at).toLocaleString('zh-TW') : '-'}</div>
             </div>
@@ -307,9 +307,9 @@ export class TcBookEditDialog extends LitElement {
               <label>書名 <span class="required">*</span></label>
               <input
                 type="text"
-                .value=${this.title}
+                .value=${this.bookTitle}
                 placeholder="輸入書籍名稱"
-                @input=${(e: Event) => (this.title = (e.target as HTMLInputElement).value)}
+                @input=${(e: Event) => (this.bookTitle = (e.target as HTMLInputElement).value)}
               />
             </div>
 
@@ -488,7 +488,7 @@ export class TcBookEditDialog extends LitElement {
   }
 
   private get canSave(): boolean {
-    return !!this.title.trim();
+    return !!this.bookTitle.trim();
   }
 
   private handleClose(): void {
@@ -504,7 +504,7 @@ export class TcBookEditDialog extends LitElement {
 
     try {
       const updates = {
-        title: this.title.trim(),
+        title: this.bookTitle.trim(),
         category_id: this.categoryId ? parseInt(this.categoryId, 10) : null,
         introtext: this.introtext.trim() || null,
         author: this.author.trim() || null,

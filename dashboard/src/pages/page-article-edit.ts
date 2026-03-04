@@ -311,6 +311,17 @@ export class PageArticleEdit extends LitElement {
       border-radius: 8px;
     }
 
+    .preview-content .image-block {
+      margin: 16px 0;
+    }
+
+    .preview-content .image-block figcaption {
+      font-size: 13px;
+      color: var(--color-text-muted);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
     .preview-content a {
       color: var(--color-accent);
     }
@@ -366,7 +377,7 @@ export class PageArticleEdit extends LitElement {
   private saving = false;
 
   @state()
-  private title = '';
+  private articleTitle = '';
 
   @state()
   private content = '';
@@ -397,7 +408,7 @@ export class PageArticleEdit extends LitElement {
       }
 
       this.article = article;
-      this.title = article.title;
+      this.articleTitle = article.title;
       this.content = article.content;
     } catch (error) {
       console.error('Error loading article:', error);
@@ -421,10 +432,13 @@ export class PageArticleEdit extends LitElement {
       // Bold and italic
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      // Images（必須在 Links 之前處理）
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<figure class="image-block"><img src="$2" alt="$1"><figcaption>$1</figcaption></figure>')
       // Links
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-      // Images
-      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, text: string, url: string) => {
+        const safeUrl = url.replace(/^javascript:/i, '');
+        return `<a href="${safeUrl}" target="_blank">${text}</a>`;
+      })
       // Code blocks
       .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
       // Inline code
@@ -517,7 +531,7 @@ export class PageArticleEdit extends LitElement {
             <input
               type="text"
               class="title-input"
-              .value=${this.title}
+              .value=${this.articleTitle}
               @input=${this.handleTitleChange}
               placeholder="請輸入標題"
             />
@@ -656,7 +670,7 @@ export class PageArticleEdit extends LitElement {
   }
 
   private handleTitleChange(e: Event): void {
-    this.title = (e.target as HTMLInputElement).value;
+    this.articleTitle = (e.target as HTMLInputElement).value;
   }
 
   private handleContentChange(e: Event): void {
@@ -821,7 +835,7 @@ export class PageArticleEdit extends LitElement {
   private async handleSave(): Promise<void> {
     if (!this.article) return;
 
-    if (!this.title.trim()) {
+    if (!this.articleTitle.trim()) {
       toastStore.error('請輸入標題');
       return;
     }
@@ -830,7 +844,7 @@ export class PageArticleEdit extends LitElement {
 
     try {
       await updateArticle(this.articleId, {
-        title: this.title.trim(),
+        title: this.articleTitle.trim(),
         content: this.content,
       });
 
