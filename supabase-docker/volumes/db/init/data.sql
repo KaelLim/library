@@ -77,14 +77,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON public.audit_logs USING BTRE
 
 -- 預設 8 個固定分類
 INSERT INTO public.category (id, name, sort_order) VALUES
-  (1, '特別報導', 1),
-  (2, '慈善', 2),
-  (3, '醫療', 3),
-  (4, '教育', 4),
-  (5, '人文', 5),
-  (6, '環保', 6),
-  (7, '國際', 7),
-  (8, '社區', 8)
+  (1, '全球焦點', 1),
+  (2, '證嚴上人開示', 2),
+  (3, '慈濟要聞', 3),
+  (4, '慈善志業要聞', 4),
+  (5, '里仁為美', 5),
+  (6, '大醫行願', 6),
+  (7, '春風化雨', 7),
+  (8, '人文馨香', 8)
 ON CONFLICT (name) DO NOTHING;
 
 -- 重設 sequence
