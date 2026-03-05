@@ -20,9 +20,9 @@ CREATE TABLE IF NOT EXISTS public.books (
   id BIGSERIAL NOT NULL,
   category_id BIGINT REFERENCES public.books_category(id) ON DELETE SET NULL,
 
-  -- FlipHTML5 相關
+  -- 識別
   book_url TEXT,                      -- FlipHTML5 連結
-  book_id TEXT,                       -- FlipHTML5 book ID
+  book_id UUID DEFAULT gen_random_uuid(),  -- UUID 識別碼
 
   -- 書籍資訊
   title TEXT NOT NULL,
@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS public.books (
   isbn TEXT,
 
   -- 檔案
-  pdf_path TEXT,                      -- bucket 路徑 (UUID.pdf)
-  cover_image TEXT,                   -- 封面圖 URL
+  pdf_path TEXT,                      -- bucket 路徑 or 外部 URL
+  thumbnail_url TEXT,                 -- 縮圖 URL
 
   -- 設定
   language TEXT DEFAULT 'zh-TW',

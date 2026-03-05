@@ -315,8 +315,8 @@ export class PageBooksList extends LitElement {
     return html`
       <div class="book-card">
         <div class="book-thumbnail">
-          ${book.cover_image
-            ? html`<img src=${book.cover_image} alt=${book.title} />`
+          ${book.thumbnail_url
+            ? html`<img src=${book.thumbnail_url} alt=${book.title} />`
             : html`<span class="placeholder">📖</span>`}
         </div>
         <div class="book-info">

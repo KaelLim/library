@@ -446,7 +446,6 @@ export async function uploadBookThumbnail(
 
   if (error) throw error;
 
-  // 使用相對路徑，避免存入 Docker 內部 URL
   return `/storage/v1/object/public/books/${path}`;
 }
 

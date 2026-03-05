@@ -573,8 +573,6 @@ fastify.post('/books/create', async (request, reply) => {
     const book = await insertBook({
       category_id: categoryId || null,
       book_url: fields.book_url || null,
-      book_id: fields.book_id || null,
-      thumbnail_url: thumbnailUrl,
       title,
       introtext: fields.introtext || fields.description || null,
       catalogue: fields.catalogue || null,
@@ -584,7 +582,7 @@ fastify.post('/books/create', async (request, reply) => {
       book_date: fields.book_date || null,
       isbn: fields.isbn || null,
       pdf_path: storageResult.path,
-      cover_image: fields.cover_image || null,
+      thumbnail_url: thumbnailUrl,
       language: fields.language || 'zh-TW',
       turn_page: (fields.turn_page as 'left' | 'right') || 'left',
       copyright: fields.copyright || null,
@@ -699,14 +697,12 @@ fastify.post<{
       return { success: true, message: 'All books have thumbnails', processed: 0 };
     }
 
-    // 回傳 202，背景處理
     reply.status(202).send({
       success: true,
       message: `Processing ${books.length} books`,
       processing: books.length,
     });
 
-    // 背景逐一處理
     (async () => {
       let success = 0;
       let failed = 0;
@@ -715,7 +711,6 @@ fastify.post<{
         try {
           if (!book.pdf_path) continue;
 
-          // 下載 PDF
           const pdfBuffer = await downloadBookPdf(book.pdf_path);
           if (!pdfBuffer) {
             console.warn(`[Thumbnails] PDF not found: ${book.pdf_path}`);
@@ -723,18 +718,15 @@ fastify.post<{
             continue;
           }
 
-          // 擷取縮圖
           const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
           if (!thumbBuffer) {
             failed++;
             continue;
           }
 
-          // 上傳縮圖
           const uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
           const thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
 
-          // 更新 DB
           await updateBook(book.id, { thumbnail_url: thumbnailUrl });
           console.log(`[Thumbnails] ${book.id}: ${book.title} → ${thumbnailUrl}`);
           success++;

@@ -76,10 +76,9 @@ export interface Book {
   id: number;
   category_id: number | null;
 
-  // 外部連結
+  // 識別
   book_url: string | null;
-  book_id: string | null;
-  thumbnail_url: string | null;
+  book_id: string | null;  // UUID
 
   // 書籍資訊
   title: string;
@@ -95,7 +94,7 @@ export interface Book {
 
   // 檔案
   pdf_path: string | null;
-  cover_image: string | null;
+  thumbnail_url: string | null;
 
   // 設定
   language: string;
@@ -113,7 +112,8 @@ export interface Book {
   updated_at: string;
 }
 
-export type BookInsert = Omit<Book, 'id' | 'created_at' | 'updated_at' | 'hits'> & {
+export type BookInsert = Omit<Book, 'id' | 'book_id' | 'created_at' | 'updated_at' | 'hits'> & {
+  book_id?: string;
   hits?: number;
 };
 

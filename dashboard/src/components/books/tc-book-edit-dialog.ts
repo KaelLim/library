@@ -290,12 +290,11 @@ export class TcBookEditDialog extends LitElement {
         <div class="form">
           <!-- 書籍資訊 -->
           <div class="book-info">
-            ${this.book.cover_image
-              ? html`<img class="book-thumbnail" src=${this.book.cover_image} alt=${this.book.title} />`
+            ${this.book.thumbnail_url
+              ? html`<img class="book-thumbnail" src=${this.book.thumbnail_url} alt=${this.book.title} />`
               : ''}
             <div class="book-meta">
               <div>ID: ${this.book.id}</div>
-              <div>Book ID: ${this.book.book_id || '-'}</div>
               ${this.book.pdf_path
                 ? html`<div><a href="/books/r/${this.book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '')}" target="_blank">閱讀電子書 ↗</a></div>`
                 : ''}

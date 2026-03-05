@@ -11,7 +11,7 @@ export interface Book {
   id: number;
   category_id: number | null;
   book_url: string | null;
-  book_id: string | null;
+  book_id: string | null;  // UUID
   title: string;
   introtext: string | null;
   catalogue: string | null;
@@ -23,7 +23,7 @@ export interface Book {
   publish_date: string | null;
   page_count: number | null;
   pdf_path: string | null;
-  cover_image: string | null;
+  thumbnail_url: string | null;
   language: string | null;
   turn_page: 'left' | 'right' | null;
   copyright: string | null;
