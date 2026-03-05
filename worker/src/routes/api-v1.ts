@@ -8,17 +8,10 @@ const paginationQueryProps = {
   offset: { type: 'string', description: '起始位置 (default 0)' },
 };
 
-const paginationHeaders = ['X-Total-Count', 'X-Page', 'X-Page-Count', 'X-Per-Page', 'X-Offset'];
-
-function setPaginationHeaders(reply: any, total: number, limit: number, offset: number) {
+function paginate(data: any[], total: number, limit: number, offset: number) {
   const page = Math.floor(offset / limit) + 1;
-  const pageCount = Math.ceil(total / limit) || 1;
-  reply.header('X-Total-Count', total);
-  reply.header('X-Page', page);
-  reply.header('X-Page-Count', pageCount);
-  reply.header('X-Per-Page', limit);
-  reply.header('X-Offset', offset);
-  reply.header('Access-Control-Expose-Headers', paginationHeaders.join(', '));
+  const page_count = Math.ceil(total / limit) || 1;
+  return { total, page, page_count, limit, offset, data };
 }
 
 const apiV1Routes: FastifyPluginAsync = async (fastify) => {
@@ -55,7 +48,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-  }, async (request, reply) => {
+  }, async (request) => {
     const { status, limit: limitStr, offset: offsetStr } = request.query;
     const limit = Math.min(parseInt(limitStr || '20', 10), 100);
     const offset = parseInt(offsetStr || '0', 10);
@@ -73,13 +66,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    setPaginationHeaders(reply, count || 0, limit, offset);
-
-    return (data || []).map((w: any) => ({
+    const rows = (data || []).map((w: any) => ({
       ...w,
       article_count: w.articles?.[0]?.count || 0,
       articles: undefined,
     }));
+
+    return paginate(rows, count || 0, limit, offset);
   });
 
   // GET /weekly/:id - 週報詳情（含分類＋文章）
@@ -181,7 +174,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-  }, async (request, reply) => {
+  }, async (request) => {
     const { weekly_id, platform, category_id, limit: limitStr, offset: offsetStr } = request.query;
     const limit = Math.min(parseInt(limitStr || '20', 10), 100);
     const offset = parseInt(offsetStr || '0', 10);
@@ -199,8 +192,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    setPaginationHeaders(reply, count || 0, limit, offset);
-    return data || [];
+    return paginate(data || [], count || 0, limit, offset);
   });
 
   // GET /articles/:id - 單篇文章
@@ -274,7 +266,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-  }, async (request, reply) => {
+  }, async (request) => {
     const { category_id, limit: limitStr, offset: offsetStr } = request.query;
     const limit = Math.min(parseInt(limitStr || '20', 10), 100);
     const offset = parseInt(offsetStr || '0', 10);
@@ -290,8 +282,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    setPaginationHeaders(reply, count || 0, limit, offset);
-    return data || [];
+    return paginate(data || [], count || 0, limit, offset);
   });
 
   // GET /books/:id - 單本電子書
