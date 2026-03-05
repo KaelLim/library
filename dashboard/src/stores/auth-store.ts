@@ -5,11 +5,18 @@ type AuthCallback = (isAuthenticated: boolean) => void;
 
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// localStorage keys for persisting auth state across page refreshes
+const LS_PROVIDER_TOKEN = '_tc_provider_token';
+const LS_PROVIDER_REFRESH_TOKEN = '_tc_provider_refresh_token';
+const LS_USER_EMAIL = '_tc_user_email';
+const LS_IS_ALLOWED = '_tc_is_allowed';
+
 class AuthStore {
   private _user: User | null = null;
   private _session: Session | null = null;
-  private _providerToken: string | null = null;
-  private _isAllowed = false;
+  private _providerToken: string | null = localStorage.getItem(LS_PROVIDER_TOKEN);
+  private _providerRefreshToken: string | null = localStorage.getItem(LS_PROVIDER_REFRESH_TOKEN);
+  private _isAllowed = localStorage.getItem(LS_IS_ALLOWED) === 'true';
   private _initialized = false;
   private _listeners: AuthCallback[] = [];
 
@@ -37,6 +44,10 @@ class AuthStore {
     return this._providerToken;
   }
 
+  get providerRefreshToken(): string | null {
+    return this._providerRefreshToken;
+  }
+
   async initialize(): Promise<void> {
     if (this._initialized) return;
 
@@ -59,25 +70,34 @@ class AuthStore {
       this._session = validSession;
       this._user = validSession.user;
       this._isAllowed = await this.checkAllowedUser(validSession.user.email);
+      this.persistState();
     }
 
     // 初始 session 也可能含 provider_token（從 localStorage 恢復）
     if (this._session?.provider_token) {
       this._providerToken = this._session.provider_token;
     }
+    if (this._session?.provider_refresh_token) {
+      this._providerRefreshToken = this._session.provider_refresh_token;
+    }
+    this.persistState();
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
       this._session = session;
       this._user = session?.user ?? null;
 
-      // 保存 provider_token（只在 SIGNED_IN 時出現）
+      // 保存 provider tokens（只在 SIGNED_IN 時出現）
       if (session?.provider_token) {
         this._providerToken = session.provider_token;
+      }
+      if (session?.provider_refresh_token) {
+        this._providerRefreshToken = session.provider_refresh_token;
       }
 
       // TOKEN_REFRESHED 只是 JWT 刷新，不需要重新查詢 allowed_users
       if (event === 'TOKEN_REFRESHED') {
+        this.persistState();
         return;
       }
 
@@ -92,6 +112,7 @@ class AuthStore {
         return;
       }
 
+      this.persistState();
       this.notifyListeners();
     });
 
@@ -159,15 +180,33 @@ class AuthStore {
   }
 
   /**
-   * 清除所有 Supabase 相關的 localStorage
+   * 持久化所有 auth 相關狀態到 localStorage
+   */
+  private persistState(): void {
+    if (this._providerToken) {
+      localStorage.setItem(LS_PROVIDER_TOKEN, this._providerToken);
+    }
+    if (this._providerRefreshToken) {
+      localStorage.setItem(LS_PROVIDER_REFRESH_TOKEN, this._providerRefreshToken);
+    }
+    if (this._user?.email) {
+      localStorage.setItem(LS_USER_EMAIL, this._user.email);
+    }
+    localStorage.setItem(LS_IS_ALLOWED, String(this._isAllowed));
+  }
+
+  /**
+   * 清除所有 auth 相關的 localStorage（Supabase + 自訂 keys）
    * 直接操作 localStorage 避免 supabase.auth.signOut() 也卡住
    */
   private clearLocalStorage(): void {
     Object.keys(localStorage)
-      .filter((k) => k.startsWith('sb-'))
+      .filter((k) => k.startsWith('sb-') || k.startsWith('_tc_'))
       .forEach((k) => localStorage.removeItem(k));
     this._session = null;
     this._user = null;
+    this._providerToken = null;
+    this._providerRefreshToken = null;
     this._isAllowed = false;
   }
 
@@ -189,9 +228,7 @@ class AuthStore {
 
   async signOut(): Promise<void> {
     await supabase.auth.signOut();
-    this._user = null;
-    this._session = null;
-    this._isAllowed = false;
+    this.clearLocalStorage();
     this.notifyListeners();
   }
 

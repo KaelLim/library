@@ -4,6 +4,7 @@ export type ImportStep =
   | 'starting'
   | 'exporting_docs'
   | 'converting_images'
+  | 'replacing_images'
   | 'uploading_original'
   | 'ai_parsing'
   | 'uploading_clean'
@@ -48,6 +49,7 @@ export const IMPORT_STEPS: StepInfo[] = [
   { key: 'starting', label: '初始化', description: '準備匯入環境' },
   { key: 'exporting_docs', label: '下載文件', description: '從 Google Docs 下載 markdown' },
   { key: 'converting_images', label: '處理圖片', description: '提取並上傳圖片' },
+  { key: 'replacing_images', label: '替換高解析度', description: 'AI 比對並替換高解析度圖片' },
   { key: 'uploading_original', label: '上傳原稿', description: '儲存原始 markdown' },
   { key: 'ai_parsing', label: 'AI 解析', description: '解析 markdown 為結構化資料' },
   { key: 'uploading_clean', label: '上傳整理', description: '儲存整理後的 markdown' },

@@ -185,9 +185,13 @@ fastify.post<{
     doc_url: string;
     weekly_id?: number;
     user_email?: string;
+    drive_folder_url?: string;
+    provider_token?: string;
   };
 }>('/import', async (request, reply) => {
-  const { doc_url, weekly_id, user_email } = request.body;
+  const { doc_url, weekly_id, user_email, drive_folder_url, provider_token } = request.body;
+
+  console.log(`[Import] weekly_id=${weekly_id}, drive_folder_url=${drive_folder_url ? 'YES' : 'NO'}, provider_token=${provider_token ? 'YES' : 'NO'}`);
 
   if (!doc_url) {
     return reply.status(400).send({
@@ -243,6 +247,8 @@ fastify.post<{
       docId,
       weeklyId: weekly_id,
       userEmail: user_email,
+      driveFolderUrl: drive_folder_url,
+      providerToken: provider_token,
     },
     (step, progress, error) => {
       if (error) {

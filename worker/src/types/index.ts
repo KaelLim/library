@@ -122,6 +122,7 @@ export type ImportStep =
   | 'starting'
   | 'exporting_docs'
   | 'converting_images'
+  | 'replacing_images'
   | 'uploading_original'
   | 'ai_parsing'
   | 'uploading_clean'

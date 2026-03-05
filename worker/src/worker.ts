@@ -1,5 +1,7 @@
 import { loadMarkdownFromFile, extractWeeklyId, downloadMarkdownFromGoogleDocs } from './services/google-docs.js';
 import { processAllImages } from './services/image-processor.js';
+import { matchAndReplaceImages } from './services/image-matcher.js';
+import { extractFolderId } from './services/google-drive.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { cleanupChannel } from './services/session-streamer.js';
@@ -21,6 +23,8 @@ interface WorkerOptions {
   docId?: string;
   weeklyId?: number;
   userEmail?: string;
+  driveFolderUrl?: string;
+  providerToken?: string;
 }
 
 type ProgressCallback = (step: ImportStep, progress?: string, error?: string) => void;
@@ -90,6 +94,30 @@ export async function runImportWorker(
     // 2. 處理 base64 圖片
     await updateProgress('converting_images', '轉換圖片中...');
     const markdownWithUrls = await processAllImages(rawMarkdown, weeklyId);
+
+    // 2.5 替換高解析度圖片（如果提供了 Drive 資料夾）
+    if (options.driveFolderUrl && options.providerToken) {
+      const driveFolderId = extractFolderId(options.driveFolderUrl);
+      if (driveFolderId) {
+        await updateProgress('replacing_images', '準備替換高解析度圖片...');
+        try {
+          const replaced = await matchAndReplaceImages({
+            weeklyId,
+            markdown: markdownWithUrls,
+            providerToken: options.providerToken,
+            driveFolderId,
+            onProgress: async (msg) => {
+              await updateProgress('replacing_images', msg);
+            },
+          });
+          console.log(`[replacing_images] Replaced ${replaced} images with high-res versions`);
+        } catch (error) {
+          // 圖片替換失敗不應阻止整個匯入流程
+          console.error('[replacing_images] Error:', error);
+          await updateProgress('replacing_images', '圖片替換失敗，繼續匯入...', undefined);
+        }
+      }
+    }
 
     // 3. 上傳 original.md
     await updateProgress('uploading_original', '上傳原始檔案...');
