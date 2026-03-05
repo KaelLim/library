@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { mkdirSync, writeFileSync, rmSync, readdirSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { downloadFile, listImagesRecursive, type DriveFile } from './google-drive.js';
 import { getSupabase, uploadImage } from './supabase.js';
@@ -43,9 +43,11 @@ async function downloadStorageImage(weeklyId: number, filename: string): Promise
  * 流程：
  * 1. 從 markdown 提取 Storage 圖片檔名
  * 2. 從 Drive 列出並下載高解析度圖片
- * 3. 存到 /tmp，讓 Claude Code 自己讀取比對
+ * 3. 存到 /tmp，讓 Claude Agent SDK 用 Read tool 讀取比對
  * 4. 用高解析度圖片替換 Storage 中的低解析度版本
  * 5. 清理 /tmp
+ *
+ * 注意：使用 allowedTools: ['Read'] 而非 bypassPermissions（後者在 Docker 會 crash）
  */
 export async function matchAndReplaceImages(options: {
   weeklyId: number;
@@ -100,7 +102,7 @@ export async function matchAndReplaceImages(options: {
       driveFileMap.set(file.id, { file, buffer });
     }
 
-    // 4. 讓 Claude Code 讀取 /tmp 圖片進行比對
+    // 4. 讓 Claude Agent SDK 用 Read tool 讀取 /tmp 圖片進行比對
     onProgress?.('AI 圖片比對中...');
 
     const lowFiles = storageFilenames.join(', ');
@@ -136,12 +138,16 @@ Rules:
       options: {
         model: 'claude-sonnet-4-20250514',
         maxTurns: 30,
+        allowedTools: ['Read', 'Glob'],
       },
     })) {
       if (msg.type === 'result' && (msg as any).subtype === 'success') {
         result = (msg as any).result;
       }
     }
+
+    console.log('[ImageMatcher] AI result length:', result.length);
+    console.log('[ImageMatcher] AI result preview:', result.substring(0, 300));
 
     // 解析結果
     const jsonMatch = result.match(/\[[\s\S]*?\]/);
@@ -159,6 +165,8 @@ Rules:
       onProgress?.('AI 比對結果格式錯誤，跳過替換');
       return 0;
     }
+
+    console.log('[ImageMatcher] Parsed mappings:', JSON.stringify(mappings));
 
     // 5. 替換圖片（只替換 high/medium confidence）
     let replaced = 0;

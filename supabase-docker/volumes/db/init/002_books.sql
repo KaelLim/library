@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS public.books (
   -- FlipHTML5 相關
   book_url TEXT,                      -- FlipHTML5 連結
   book_id TEXT,                       -- FlipHTML5 book ID
-  thumbnail_url TEXT,                 -- 縮圖 URL
 
   -- 書籍資訊
   title TEXT NOT NULL,
@@ -39,12 +38,12 @@ CREATE TABLE IF NOT EXISTS public.books (
 
   -- 檔案
   pdf_path TEXT,                      -- bucket 路徑 (UUID.pdf)
-  cover_image TEXT,
+  cover_image TEXT,                   -- 封面圖 URL
 
   -- 設定
   language TEXT DEFAULT 'zh-TW',
   turn_page TEXT DEFAULT 'left',      -- left (由右往左翻) / right
-  copyright TEXT,
+  copyright TEXT,                     -- 慈濟基金會所有 / 移轉授權使用
   download BOOLEAN DEFAULT TRUE,
   online_purchase TEXT,
 
@@ -52,12 +51,13 @@ CREATE TABLE IF NOT EXISTS public.books (
   hits INTEGER DEFAULT 0,
 
   -- 時間戳
-  publish_date DATE,
+  publish_date DATE,                  -- 上架日期
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT books_pkey PRIMARY KEY (id),
-  CONSTRAINT books_turn_page_check CHECK (turn_page IN ('left', 'right'))
+  CONSTRAINT books_turn_page_check CHECK (turn_page IN ('left', 'right')),
+  CONSTRAINT books_copyright_check CHECK (copyright IN ('慈濟基金會所有', '移轉授權使用'))
 );
 
 -- 索引

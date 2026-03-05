@@ -755,6 +755,207 @@ fastify.post<{
   }
 });
 
+// ===========================================
+// 批次圖片替換 API（背景處理 + Realtime 廣播）
+// ===========================================
+
+interface BatchItem {
+  weekly_id: number;
+  name: string;
+  imgurl: string;
+}
+
+let batchRunning = false;
+
+fastify.post<{
+  Body: {
+    provider_token: string;
+    items: BatchItem[];
+  };
+}>('/batch-replace-images', async (request, reply) => {
+  const { provider_token, items } = request.body;
+
+  if (!provider_token || !items?.length) {
+    return reply.status(400).send({
+      error: 'MISSING_PARAMS',
+      message: 'provider_token and items are required',
+    });
+  }
+
+  if (batchRunning) {
+    return reply.status(409).send({
+      error: 'ALREADY_RUNNING',
+      message: '批次替換正在執行中',
+    });
+  }
+
+  // 立即回傳 202
+  reply.status(202).send({
+    success: true,
+    message: 'Batch replace started',
+    total: items.filter(i => i.imgurl).length,
+  });
+
+  // 背景處理
+  batchRunning = true;
+  const { matchAndReplaceImages } = await import('./services/image-matcher.js');
+  const sb = (await import('./services/supabase.js')).getSupabase();
+  const channel = sb.channel('batch-replace');
+
+  const broadcast = async (data: Record<string, unknown>) => {
+    try {
+      await channel.send({ type: 'broadcast', event: 'progress', payload: data });
+    } catch (err) {
+      console.error('[batch-replace] Broadcast error:', err);
+    }
+  };
+
+  // 訂閱 channel
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => resolve(), 3000);
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR') {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+
+  const validItems = items.filter(i => i.imgurl);
+  let processed = 0;
+  let successCount = 0;
+  let errorCount = 0;
+  let totalReplaced = 0;
+
+  await broadcast({ type: 'started', total: validItems.length });
+
+  for (const item of items) {
+    if (!item.imgurl) {
+      await broadcast({
+        type: 'item',
+        weekly_id: item.weekly_id,
+        name: item.name,
+        status: 'skipped',
+        message: '無圖片資料夾',
+        processed,
+        total: validItems.length,
+      });
+      continue;
+    }
+
+    const folderId = extractFolderId(item.imgurl);
+    if (!folderId) {
+      errorCount++;
+      processed++;
+      await broadcast({
+        type: 'item',
+        weekly_id: item.weekly_id,
+        name: item.name,
+        status: 'error',
+        message: '無效的資料夾 URL',
+        processed,
+        total: validItems.length,
+      });
+      continue;
+    }
+
+    await broadcast({
+      type: 'item',
+      weekly_id: item.weekly_id,
+      name: item.name,
+      status: 'running',
+      message: '處理中...',
+      processed,
+      total: validItems.length,
+    });
+
+    try {
+      // 下載 original.md
+      const { data: mdData } = await sb.storage
+        .from('weekly')
+        .download(`articles/${item.weekly_id}/original.md`);
+
+      if (!mdData) {
+        processed++;
+        await broadcast({
+          type: 'item',
+          weekly_id: item.weekly_id,
+          name: item.name,
+          status: 'skipped',
+          message: '尚未匯入',
+          processed,
+          total: validItems.length,
+        });
+        continue;
+      }
+
+      const markdown = await mdData.text();
+
+      const replaced = await matchAndReplaceImages({
+        weeklyId: item.weekly_id,
+        markdown,
+        providerToken: provider_token,
+        driveFolderId: folderId,
+        onProgress: async (msg) => {
+          console.log(`[batch-replace][${item.weekly_id}] ${msg}`);
+          await broadcast({
+            type: 'item',
+            weekly_id: item.weekly_id,
+            name: item.name,
+            status: 'running',
+            message: msg,
+            processed,
+            total: validItems.length,
+          });
+        },
+      });
+
+      successCount++;
+      totalReplaced += replaced;
+      processed++;
+
+      await broadcast({
+        type: 'item',
+        weekly_id: item.weekly_id,
+        name: item.name,
+        status: 'success',
+        replaced,
+        message: `替換 ${replaced} 張`,
+        processed,
+        total: validItems.length,
+      });
+    } catch (err) {
+      errorCount++;
+      processed++;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[batch-replace][${item.weekly_id}] Error:`, msg);
+
+      await broadcast({
+        type: 'item',
+        weekly_id: item.weekly_id,
+        name: item.name,
+        status: 'error',
+        message: msg,
+        processed,
+        total: validItems.length,
+      });
+    }
+  }
+
+  await broadcast({
+    type: 'completed',
+    processed,
+    total: validItems.length,
+    successCount,
+    errorCount,
+    totalReplaced,
+  });
+
+  await sb.removeChannel(channel);
+  batchRunning = false;
+  console.log(`[batch-replace] Done: ${successCount} success, ${errorCount} error, ${totalReplaced} replaced`);
+});
+
 // Start server
 const start = async () => {
   try {

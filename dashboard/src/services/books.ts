@@ -12,7 +12,6 @@ export interface Book {
   category_id: number | null;
   book_url: string | null;
   book_id: string | null;
-  thumbnail_url: string | null;
   title: string;
   introtext: string | null;
   catalogue: string | null;

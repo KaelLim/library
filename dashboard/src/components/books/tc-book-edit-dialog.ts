@@ -167,7 +167,9 @@ export class TcBookEditDialog extends LitElement {
     }
 
     .advanced-fields.show {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-4);
     }
 
     .footer-buttons {
@@ -227,6 +229,7 @@ export class TcBookEditDialog extends LitElement {
   @state() private authorIntrotext = '';
   @state() private publisher = '';
   @state() private bookDate = '';
+  @state() private publishDate = '';
   @state() private isbn = '';
   @state() private catalogue = '';
   @state() private copyright = '';
@@ -264,6 +267,7 @@ export class TcBookEditDialog extends LitElement {
     this.authorIntrotext = this.book.author_introtext || '';
     this.publisher = this.book.publisher || '';
     this.bookDate = this.book.book_date || '';
+    this.publishDate = this.book.publish_date || '';
     this.isbn = this.book.isbn || '';
     this.catalogue = this.book.catalogue || '';
     this.copyright = this.book.copyright || '';
@@ -286,8 +290,8 @@ export class TcBookEditDialog extends LitElement {
         <div class="form">
           <!-- 書籍資訊 -->
           <div class="book-info">
-            ${this.book.thumbnail_url
-              ? html`<img class="book-thumbnail" src=${this.book.thumbnail_url} alt=${this.book.title} />`
+            ${this.book.cover_image
+              ? html`<img class="book-thumbnail" src=${this.book.cover_image} alt=${this.book.title} />`
               : ''}
             <div class="book-meta">
               <div>ID: ${this.book.id}</div>
@@ -381,6 +385,17 @@ export class TcBookEditDialog extends LitElement {
               </div>
 
               <div class="form-group">
+                <label>上架日期</label>
+                <input
+                  type="date"
+                  .value=${this.publishDate}
+                  @change=${(e: Event) => (this.publishDate = (e.target as HTMLInputElement).value)}
+                />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
                 <label>ISBN</label>
                 <input
                   type="text"
@@ -389,6 +404,8 @@ export class TcBookEditDialog extends LitElement {
                   @input=${(e: Event) => (this.isbn = (e.target as HTMLInputElement).value)}
                 />
               </div>
+
+              <div class="form-group"></div>
             </div>
 
             <div class="form-group full-width">
@@ -412,12 +429,14 @@ export class TcBookEditDialog extends LitElement {
             <div class="form-row">
               <div class="form-group">
                 <label>版權聲明</label>
-                <input
-                  type="text"
+                <select
                   .value=${this.copyright}
-                  placeholder="輸入版權聲明"
-                  @input=${(e: Event) => (this.copyright = (e.target as HTMLInputElement).value)}
-                />
+                  @change=${(e: Event) => (this.copyright = (e.target as HTMLSelectElement).value)}
+                >
+                  <option value="">請選擇</option>
+                  <option value="慈濟基金會所有">慈濟基金會所有</option>
+                  <option value="移轉授權使用">移轉授權使用</option>
+                </select>
               </div>
 
               <div class="form-group">
@@ -511,6 +530,7 @@ export class TcBookEditDialog extends LitElement {
         author_introtext: this.authorIntrotext.trim() || null,
         publisher: this.publisher.trim() || null,
         book_date: this.bookDate || null,
+        publish_date: this.publishDate || null,
         isbn: this.isbn.trim() || null,
         catalogue: this.catalogue.trim() || null,
         copyright: this.copyright.trim() || null,

@@ -38,8 +38,8 @@ export class PageBooksList extends LitElement {
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: var(--spacing-4);
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: var(--spacing-6);
     }
 
     .book-card {
@@ -47,16 +47,19 @@ export class PageBooksList extends LitElement {
       border: 1px solid var(--color-border);
       border-radius: var(--radius-lg);
       overflow: hidden;
-      transition: box-shadow var(--transition-base);
+      transition: all var(--transition-base);
+      display: flex;
+      flex-direction: column;
     }
 
     .book-card:hover {
       box-shadow: var(--shadow-md);
+      border-color: var(--color-border-hover);
     }
 
     .book-thumbnail {
       aspect-ratio: 3/4;
-      background: var(--color-bg-muted);
+      background: var(--color-bg-card);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -75,14 +78,17 @@ export class PageBooksList extends LitElement {
     }
 
     .book-info {
-      padding: var(--spacing-4);
+      padding: var(--spacing-4) var(--spacing-4) var(--spacing-5);
+      display: flex;
+      flex-direction: column;
+      flex: 1;
     }
 
     .book-category {
       font-size: var(--font-size-xs);
       color: var(--color-accent);
       font-weight: var(--font-weight-medium);
-      margin-bottom: var(--spacing-1);
+      margin-bottom: var(--spacing-2);
     }
 
     .book-title {
@@ -94,17 +100,21 @@ export class PageBooksList extends LitElement {
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      line-height: var(--line-height-tight);
     }
 
     .book-author {
       font-size: var(--font-size-sm);
       color: var(--color-text-secondary);
-      margin-bottom: var(--spacing-3);
+      margin-bottom: auto;
     }
 
     .book-actions {
       display: flex;
       gap: var(--spacing-2);
+      margin-top: var(--spacing-4);
+      padding-top: var(--spacing-3);
+      border-top: 1px solid var(--color-border);
     }
 
     .book-actions tc-button {
@@ -305,8 +315,8 @@ export class PageBooksList extends LitElement {
     return html`
       <div class="book-card">
         <div class="book-thumbnail">
-          ${book.thumbnail_url
-            ? html`<img src=${book.thumbnail_url} alt=${book.title} />`
+          ${book.cover_image
+            ? html`<img src=${book.cover_image} alt=${book.title} />`
             : html`<span class="placeholder">📖</span>`}
         </div>
         <div class="book-info">

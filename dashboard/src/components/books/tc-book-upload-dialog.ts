@@ -216,7 +216,9 @@ export class TcBookUploadDialog extends LitElement {
     }
 
     .advanced-fields.show {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-4);
     }
 
     .footer-buttons {
@@ -263,6 +265,7 @@ export class TcBookUploadDialog extends LitElement {
   @state() private authorIntrotext = '';
   @state() private publisher = '';
   @state() private bookDate = '';
+  @state() private publishDate = '';
   @state() private isbn = '';
   @state() private catalogue = '';
   @state() private copyright = '';
@@ -270,6 +273,7 @@ export class TcBookUploadDialog extends LitElement {
   @state() private language = 'zh-TW';
   @state() private turnPage = 'left';
   @state() private download = true;
+  @state() private weeklyNumber = '';
 
   @query('#file-input') private fileInput!: HTMLInputElement;
 
@@ -286,6 +290,27 @@ export class TcBookUploadDialog extends LitElement {
       }
     } catch (error) {
       console.error('Failed to load categories:', error);
+    }
+  }
+
+  private get isWeeklyCategory(): boolean {
+    const cat = this.categories.find((c) => String(c.id) === this.categoryId);
+    return cat?.slug === 'weekly';
+  }
+
+  private getTodayString(): string {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  private handleCategoryChange(value: string): void {
+    this.categoryId = value;
+    const cat = this.categories.find((c) => String(c.id) === value);
+    if (cat?.slug === 'weekly') {
+      // 自動填入週報預設值
+      if (!this.author) this.author = '慈濟文史處數位平台組 文編';
+      if (!this.publisher) this.publisher = '慈濟文史處數位平台組';
+      if (!this.bookDate) this.bookDate = this.getTodayString();
+      if (!this.publishDate) this.publishDate = this.getTodayString();
     }
   }
 
@@ -355,26 +380,46 @@ export class TcBookUploadDialog extends LitElement {
 
         <div class="form-row">
           <div class="form-group">
-            <label>書名 <span class="required">*</span></label>
-            <input
-              type="text"
-              .value=${this.bookTitle}
-              placeholder="輸入書籍名稱"
-              @input=${(e: Event) => (this.bookTitle = (e.target as HTMLInputElement).value)}
-            />
-          </div>
-
-          <div class="form-group">
             <label>分類 <span class="required">*</span></label>
             <select
               .value=${this.categoryId}
-              @change=${(e: Event) => (this.categoryId = (e.target as HTMLSelectElement).value)}
+              @change=${(e: Event) => this.handleCategoryChange((e.target as HTMLSelectElement).value)}
             >
               ${this.categories.map(
                 (cat) => html`<option value=${cat.id}>${cat.name}</option>`
               )}
             </select>
           </div>
+
+          ${this.isWeeklyCategory
+            ? html`
+                <div class="form-group">
+                  <label>期數 <span class="required">*</span></label>
+                  <input
+                    type="number"
+                    .value=${this.weeklyNumber}
+                    placeholder="例：127"
+                    min="1"
+                    @input=${(e: Event) => {
+                      this.weeklyNumber = (e.target as HTMLInputElement).value;
+                      if (this.weeklyNumber) {
+                        this.bookTitle = `慈濟週報第${this.weeklyNumber}期`;
+                      }
+                    }}
+                  />
+                </div>
+              `
+            : html`
+                <div class="form-group">
+                  <label>書名 <span class="required">*</span></label>
+                  <input
+                    type="text"
+                    .value=${this.bookTitle}
+                    placeholder="輸入書籍名稱"
+                    @input=${(e: Event) => (this.bookTitle = (e.target as HTMLInputElement).value)}
+                  />
+                </div>
+              `}
         </div>
 
         <div class="form-row">
@@ -431,6 +476,17 @@ export class TcBookUploadDialog extends LitElement {
             </div>
 
             <div class="form-group">
+              <label>上架日期</label>
+              <input
+                type="date"
+                .value=${this.publishDate}
+                @change=${(e: Event) => (this.publishDate = (e.target as HTMLInputElement).value)}
+              />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
               <label>ISBN</label>
               <input
                 type="text"
@@ -439,6 +495,8 @@ export class TcBookUploadDialog extends LitElement {
                 @input=${(e: Event) => (this.isbn = (e.target as HTMLInputElement).value)}
               />
             </div>
+
+            <div class="form-group"></div>
           </div>
 
           <div class="form-group full-width">
@@ -462,12 +520,14 @@ export class TcBookUploadDialog extends LitElement {
           <div class="form-row">
             <div class="form-group">
               <label>版權聲明</label>
-              <input
-                type="text"
+              <select
                 .value=${this.copyright}
-                placeholder="輸入版權聲明"
-                @input=${(e: Event) => (this.copyright = (e.target as HTMLInputElement).value)}
-              />
+                @change=${(e: Event) => (this.copyright = (e.target as HTMLSelectElement).value)}
+              >
+                <option value="">請選擇</option>
+                <option value="慈濟基金會所有">慈濟基金會所有</option>
+                <option value="移轉授權使用">移轉授權使用</option>
+              </select>
             </div>
 
             <div class="form-group">
@@ -537,7 +597,9 @@ export class TcBookUploadDialog extends LitElement {
   }
 
   private get canSubmit(): boolean {
-    return !!this.selectedFile && !!this.bookTitle.trim() && !!this.categoryId;
+    if (!this.selectedFile || !this.categoryId) return false;
+    if (this.isWeeklyCategory) return !!this.weeklyNumber;
+    return !!this.bookTitle.trim();
   }
 
   private handleFileClick(): void {
@@ -586,11 +648,13 @@ export class TcBookUploadDialog extends LitElement {
   private resetForm(): void {
     this.selectedFile = null;
     this.bookTitle = '';
+    this.weeklyNumber = '';
     this.introtext = '';
     this.author = '';
     this.authorIntrotext = '';
     this.publisher = '';
     this.bookDate = '';
+    this.publishDate = '';
     this.isbn = '';
     this.catalogue = '';
     this.copyright = '';
@@ -625,6 +689,7 @@ export class TcBookUploadDialog extends LitElement {
       // 進階欄位
       if (this.authorIntrotext.trim()) formData.append('author_introtext', this.authorIntrotext.trim());
       if (this.bookDate) formData.append('book_date', this.bookDate);
+      if (this.publishDate) formData.append('publish_date', this.publishDate);
       if (this.isbn.trim()) formData.append('isbn', this.isbn.trim());
       if (this.catalogue.trim()) formData.append('catalogue', this.catalogue.trim());
       if (this.copyright.trim()) formData.append('copyright', this.copyright.trim());
