@@ -8,6 +8,19 @@ const paginationQueryProps = {
   offset: { type: 'string', description: '起始位置 (default 0)' },
 };
 
+const paginationHeaders = ['X-Total-Count', 'X-Page', 'X-Page-Count', 'X-Per-Page', 'X-Offset'];
+
+function setPaginationHeaders(reply: any, total: number, limit: number, offset: number) {
+  const page = Math.floor(offset / limit) + 1;
+  const pageCount = Math.ceil(total / limit) || 1;
+  reply.header('X-Total-Count', total);
+  reply.header('X-Page', page);
+  reply.header('X-Page-Count', pageCount);
+  reply.header('X-Per-Page', limit);
+  reply.header('X-Offset', offset);
+  reply.header('Access-Control-Expose-Headers', paginationHeaders.join(', '));
+}
+
 const apiV1Routes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(swagger, {
     openapi: {
@@ -42,14 +55,14 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { status, limit: limitStr, offset: offsetStr } = request.query;
     const limit = Math.min(parseInt(limitStr || '20', 10), 100);
     const offset = parseInt(offsetStr || '0', 10);
 
     let query = getSupabase()
       .from('weekly')
-      .select('*, articles(count)')
+      .select('*, articles(count)', { count: 'exact' })
       .order('week_number', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -57,16 +70,16 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       query = query.eq('status', status);
     }
 
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) throw error;
 
-    const weekly = (data || []).map((w: any) => ({
+    setPaginationHeaders(reply, count || 0, limit, offset);
+
+    return (data || []).map((w: any) => ({
       ...w,
       article_count: w.articles?.[0]?.count || 0,
       articles: undefined,
     }));
-
-    return weekly;
   });
 
   // GET /weekly/:id - 週報詳情（含分類＋文章）
@@ -139,10 +152,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       categoryMap.get(catId)!.articles.push(articleData);
     }
 
-    const categories = Array.from(categoryMap.values()).sort((a, b) => a.sort_order - b.sort_order);
+    const categories = Array.from(categoryMap.values())
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((cat) => ({ ...cat, article_count: cat.articles.length }));
 
     return {
       ...weekly,
+      article_count: (articles || []).length,
       categories,
     };
   });
@@ -165,14 +181,14 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { weekly_id, platform, category_id, limit: limitStr, offset: offsetStr } = request.query;
     const limit = Math.min(parseInt(limitStr || '20', 10), 100);
     const offset = parseInt(offsetStr || '0', 10);
 
     let query = getSupabase()
       .from('articles')
-      .select('*, category:category_id(*)')
+      .select('*, category:category_id(*)', { count: 'exact' })
       .order('id', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -180,9 +196,10 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     if (platform) query = query.eq('platform', platform);
     if (category_id) query = query.eq('category_id', parseInt(category_id, 10));
 
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) throw error;
 
+    setPaginationHeaders(reply, count || 0, limit, offset);
     return data || [];
   });
 
@@ -230,11 +247,15 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
   }, async () => {
     const { data, error } = await getSupabase()
       .from('books_category')
-      .select('*')
+      .select('*, books(count)')
       .order('sort_order');
 
     if (error) throw error;
-    return data || [];
+    return (data || []).map((c: any) => ({
+      ...c,
+      book_count: c.books?.[0]?.count || 0,
+      books: undefined,
+    }));
   });
 
   // GET /books - 電子書列表
@@ -253,22 +274,23 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { category_id, limit: limitStr, offset: offsetStr } = request.query;
     const limit = Math.min(parseInt(limitStr || '20', 10), 100);
     const offset = parseInt(offsetStr || '0', 10);
 
     let query = getSupabase()
       .from('books')
-      .select('*, category:category_id(*)')
+      .select('*, category:category_id(*)', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (category_id) query = query.eq('category_id', parseInt(category_id, 10));
 
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) throw error;
 
+    setPaginationHeaders(reply, count || 0, limit, offset);
     return data || [];
   });
 
@@ -316,11 +338,15 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
   }, async () => {
     const { data, error } = await getSupabase()
       .from('category')
-      .select('*')
+      .select('*, articles(count)')
       .order('sort_order');
 
     if (error) throw error;
-    return data || [];
+    return (data || []).map((c: any) => ({
+      ...c,
+      article_count: c.articles?.[0]?.count || 0,
+      articles: undefined,
+    }));
   });
 };
 
