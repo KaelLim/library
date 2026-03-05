@@ -49,7 +49,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
     let query = getSupabase()
       .from('weekly')
-      .select('*, articles(count)', { count: 'exact' })
+      .select('*, articles(count)')
       .order('week_number', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -57,7 +57,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       query = query.eq('status', status);
     }
 
-    const { data, count, error } = await query;
+    const { data, error } = await query;
     if (error) throw error;
 
     const weekly = (data || []).map((w: any) => ({
@@ -66,7 +66,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       articles: undefined,
     }));
 
-    return { weekly, total: count || 0, limit, offset };
+    return weekly;
   });
 
   // GET /weekly/:id - 週報詳情（含分類＋文章）
@@ -172,7 +172,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
     let query = getSupabase()
       .from('articles')
-      .select('*, category:category_id(*)', { count: 'exact' })
+      .select('*, category:category_id(*)')
       .order('id', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -180,10 +180,10 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     if (platform) query = query.eq('platform', platform);
     if (category_id) query = query.eq('category_id', parseInt(category_id, 10));
 
-    const { data, count, error } = await query;
+    const { data, error } = await query;
     if (error) throw error;
 
-    return { articles: data || [], total: count || 0, limit, offset };
+    return data || [];
   });
 
   // GET /articles/:id - 單篇文章
@@ -260,16 +260,16 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
     let query = getSupabase()
       .from('books')
-      .select('*, category:category_id(*)', { count: 'exact' })
+      .select('*, category:category_id(*)')
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (category_id) query = query.eq('category_id', parseInt(category_id, 10));
 
-    const { data, count, error } = await query;
+    const { data, error } = await query;
     if (error) throw error;
 
-    return { books: data || [], total: count || 0, limit, offset };
+    return data || [];
   });
 
   // GET /books/:id - 單本電子書
