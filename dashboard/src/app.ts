@@ -14,6 +14,7 @@ import './pages/page-import-progress.js';
 import './pages/page-article-edit.js';
 import './pages/page-books-list.js';
 import './pages/page-logs.js';
+import './pages/page-test-drive.js';
 import './pages/page-not-found.js';
 
 // Import stores
@@ -108,6 +109,11 @@ export class TcApp extends LitElement {
         {
           path: '/logs',
           component: 'page-logs',
+          action: () => this.authGuard(),
+        },
+        {
+          path: '/test-drive',
+          component: 'page-test-drive',
           action: () => this.authGuard(),
         },
         {

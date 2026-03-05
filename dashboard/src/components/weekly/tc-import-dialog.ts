@@ -46,6 +46,9 @@ export class TcImportDialog extends LitElement {
   private docUrl = '';
 
   @state()
+  private driveFolderUrl = '';
+
+  @state()
   private weekNumber = 0;
 
   @state()
@@ -86,6 +89,13 @@ export class TcImportDialog extends LitElement {
             .error=${this.urlError}
             required
             @tc-input=${this.handleUrlInput}
+          ></tc-input>
+
+          <tc-input
+            label="圖片資料夾 URL（選填）"
+            placeholder="https://drive.google.com/drive/folders/..."
+            .value=${this.driveFolderUrl}
+            @tc-input=${this.handleFolderInput}
           ></tc-input>
 
           <tc-input
@@ -131,6 +141,10 @@ export class TcImportDialog extends LitElement {
     }
   }
 
+  private handleFolderInput(e: CustomEvent): void {
+    this.driveFolderUrl = e.detail.value;
+  }
+
   private handleWeekInput(e: CustomEvent): void {
     this.weekNumber = parseInt(e.detail.value, 10) || 0;
   }
@@ -155,6 +169,8 @@ export class TcImportDialog extends LitElement {
         doc_url: this.docUrl,
         weekly_id: this.weekNumber,
         user_email: authStore.userEmail || 'unknown',
+        drive_folder_url: this.driveFolderUrl || undefined,
+        provider_token: this.driveFolderUrl ? (authStore.providerToken || undefined) : undefined,
       });
 
       toastStore.success('匯入已開始');
@@ -171,6 +187,7 @@ export class TcImportDialog extends LitElement {
   show(): void {
     this.open = true;
     this.docUrl = '';
+    this.driveFolderUrl = '';
     this.urlError = '';
     this.loadNextWeekNumber();
   }

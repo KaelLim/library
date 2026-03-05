@@ -8,6 +8,7 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 class AuthStore {
   private _user: User | null = null;
   private _session: Session | null = null;
+  private _providerToken: string | null = null;
   private _isAllowed = false;
   private _initialized = false;
   private _listeners: AuthCallback[] = [];
@@ -30,6 +31,10 @@ class AuthStore {
 
   get userEmail(): string | null {
     return this._user?.email ?? null;
+  }
+
+  get providerToken(): string | null {
+    return this._providerToken;
   }
 
   async initialize(): Promise<void> {
@@ -56,10 +61,20 @@ class AuthStore {
       this._isAllowed = await this.checkAllowedUser(validSession.user.email);
     }
 
+    // 初始 session 也可能含 provider_token（從 localStorage 恢復）
+    if (this._session?.provider_token) {
+      this._providerToken = this._session.provider_token;
+    }
+
     // Listen for auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
       this._session = session;
       this._user = session?.user ?? null;
+
+      // 保存 provider_token（只在 SIGNED_IN 時出現）
+      if (session?.provider_token) {
+        this._providerToken = session.provider_token;
+      }
 
       // TOKEN_REFRESHED 只是 JWT 刷新，不需要重新查詢 allowed_users
       if (event === 'TOKEN_REFRESHED') {
@@ -161,6 +176,7 @@ class AuthStore {
       provider: 'google',
       options: {
         redirectTo: window.location.origin,
+        scopes: 'https://www.googleapis.com/auth/drive.readonly',
       },
     });
 

@@ -8,6 +8,7 @@ import multipart from '@fastify/multipart';
 import { runImportWorker } from './worker.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { buildExportUrl } from './services/google-docs.js';
+import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
 import {
   initSupabase,
   getArticleById,
@@ -144,6 +145,38 @@ await fastify.register(apiV1Routes, { prefix: '/api/v1' });
 // Health check
 fastify.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() };
+});
+
+// Test Google Drive access
+fastify.post<{
+  Body: { folder_url: string; provider_token: string };
+}>('/test-drive', async (request, reply) => {
+  const { folder_url, provider_token } = request.body;
+
+  if (!folder_url || !provider_token) {
+    return reply.status(400).send({
+      error: 'MISSING_PARAMS',
+      message: 'folder_url and provider_token are required',
+    });
+  }
+
+  const folderId = extractFolderId(folder_url);
+  if (!folderId) {
+    return reply.status(400).send({
+      error: 'INVALID_FOLDER_URL',
+      message: 'Invalid Google Drive folder URL',
+    });
+  }
+
+  try {
+    const files = await listImagesRecursive(provider_token, folderId);
+    return { folder_id: folderId, total: files.length, files };
+  } catch (error) {
+    return reply.status(400).send({
+      error: 'DRIVE_ERROR',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 });
 
 // Import endpoint

@@ -23,6 +23,8 @@ export interface ImportRequest {
   doc_url: string;
   weekly_id: number;
   user_email: string;
+  drive_folder_url?: string;
+  provider_token?: string;
 }
 
 export interface RewriteRequest {

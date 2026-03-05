@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
+import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
 import { authStore } from '../../stores/auth-store.js';
 import './tc-nav-item.js';
 
@@ -70,6 +71,35 @@ export class TcSidebar extends LitElement {
     .footer {
       padding: 16px;
       border-top: 1px solid var(--color-border);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .logout-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--color-text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .logout-btn:hover {
+      background: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+
+    .logout-btn svg {
+      width: 16px;
+      height: 16px;
     }
 
     .user-info {
@@ -159,9 +189,20 @@ export class TcSidebar extends LitElement {
               <div class="user-email">${user?.email || 'user@example.com'}</div>
             </div>
           </div>
+          <button class="logout-btn" @click=${this.handleLogout}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              ${unsafeSVG('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>')}
+            </svg>
+            登出
+          </button>
         </div>
       </aside>
     `;
+  }
+
+  private async handleLogout() {
+    await authStore.signOut();
+    window.location.href = '/login';
   }
 
   private getInitials(name: string): string {
