@@ -66,7 +66,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       articles: undefined,
     }));
 
-    return { data: weekly, total: count || 0, limit, offset };
+    return { weekly, total: count || 0, limit, offset };
   });
 
   // GET /weekly/:id - 週報詳情（含分類＋文章）
@@ -142,10 +142,8 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const categories = Array.from(categoryMap.values()).sort((a, b) => a.sort_order - b.sort_order);
 
     return {
-      data: {
-        ...weekly,
-        categories,
-      },
+      ...weekly,
+      categories,
     };
   });
 
@@ -185,7 +183,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    return { data: data || [], total: count || 0, limit, offset };
+    return { articles: data || [], total: count || 0, limit, offset };
   });
 
   // GET /articles/:id - 單篇文章
@@ -219,7 +217,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    return { data };
+    return data;
   });
 
   // GET /books/categories - 電子書分類
@@ -236,7 +234,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       .order('sort_order');
 
     if (error) throw error;
-    return { data: data || [] };
+    return data || [];
   });
 
   // GET /books - 電子書列表
@@ -271,7 +269,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    return { data: data || [], total: count || 0, limit, offset };
+    return { books: data || [], total: count || 0, limit, offset };
   });
 
   // GET /books/:id - 單本電子書
@@ -305,7 +303,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    return { data };
+    return data;
   });
 
   // GET /categories - 週報文章分類
@@ -322,7 +320,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       .order('sort_order');
 
     if (error) throw error;
-    return { data: data || [] };
+    return data || [];
   });
 };
 
