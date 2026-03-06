@@ -106,7 +106,11 @@ async function init() {
         pdfSource = { data: await res.arrayBuffer() };
       }
     }
-    pdfDoc = await pdfjsLib.getDocument(pdfSource).promise;
+    pdfDoc = await pdfjsLib.getDocument({
+      ...pdfSource,
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/cmaps/',
+      cMapPacked: true,
+    }).promise;
     const numPages = pdfDoc.numPages;
 
     // 2. Render initial pages (1~6) for fast first paint
