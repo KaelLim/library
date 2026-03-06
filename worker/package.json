@@ -18,7 +18,8 @@
     "@fastify/swagger-ui": "^5.2.5",
     "@supabase/supabase-js": "^2.49.1",
     "dotenv": "^16.4.7",
-    "fastify": "^5.7.2"
+    "fastify": "^5.7.2",
+    "firebase-admin": "^13.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

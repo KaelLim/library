@@ -588,6 +588,7 @@ services:
       - ../.claude/skills:/.claude/skills:ro
       - ../books:/app/books:ro
       - claude-credentials:/root/.claude
+      - ../worker/firebase-service-account.json:/app/firebase-service-account.json:ro
     healthcheck:
       test: ["CMD", "curl", "-sSf", "http://localhost:3001/health"]
       interval: 10s

@@ -5,3 +5,4 @@ drive-batch/
 *.py
 books.json
 pages/
+firebase-service-account.json

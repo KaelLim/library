@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { getSupabase } from '../services/supabase.js';
+import { subscribeToken, unsubscribeToken, sendPushNotification } from '../services/push-notification.js';
 
 const paginationQueryProps = {
   limit: { type: 'string', description: '每頁筆數 (max 100, default 20)' },
@@ -338,6 +339,70 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       article_count: c.articles?.[0]?.count || 0,
       articles: undefined,
     }));
+  });
+  // POST /push/subscribe - 訂閱推播
+  fastify.post<{
+    Body: { token: string };
+  }>('/push/subscribe', {
+    schema: {
+      tags: ['推播'],
+      summary: '訂閱推播',
+      description: '註冊 FCM token 以接收推播通知',
+      body: {
+        type: 'object',
+        required: ['token'],
+        properties: {
+          token: { type: 'string', description: 'FCM token' },
+        },
+      },
+    },
+  }, async (request) => {
+    const { token } = request.body;
+    return subscribeToken(token);
+  });
+
+  // POST /push/unsubscribe - 取消訂閱
+  fastify.post<{
+    Body: { token: string };
+  }>('/push/unsubscribe', {
+    schema: {
+      tags: ['推播'],
+      summary: '取消訂閱推播',
+      description: '停用 FCM token',
+      body: {
+        type: 'object',
+        required: ['token'],
+        properties: {
+          token: { type: 'string', description: 'FCM token' },
+        },
+      },
+    },
+  }, async (request) => {
+    const { token } = request.body;
+    return unsubscribeToken(token);
+  });
+
+  // POST /push/send - 發送推播（dashboard 用）
+  fastify.post<{
+    Body: { title: string; body: string; url?: string };
+  }>('/push/send', {
+    schema: {
+      tags: ['推播'],
+      summary: '發送推播通知',
+      description: '發送推播通知給所有訂閱者',
+      body: {
+        type: 'object',
+        required: ['title', 'body'],
+        properties: {
+          title: { type: 'string', description: '通知標題' },
+          body: { type: 'string', description: '通知內文' },
+          url: { type: 'string', description: '點擊後開啟的網址' },
+        },
+      },
+    },
+  }, async (request) => {
+    const { title, body, url } = request.body;
+    return sendPushNotification({ title, body, url });
   });
 };
 
