@@ -15,7 +15,6 @@ import './pages/page-article-edit.js';
 import './pages/page-books-list.js';
 import './pages/page-logs.js';
 import './pages/page-test-drive.js';
-import './pages/page-batch-replace.js';
 import './pages/page-not-found.js';
 
 // Import stores
@@ -115,11 +114,6 @@ export class TcApp extends LitElement {
         {
           path: '/test-drive',
           component: 'page-test-drive',
-          action: () => this.authGuard(),
-        },
-        {
-          path: '/batch-replace',
-          component: 'page-batch-replace',
           action: () => this.authGuard(),
         },
         {
