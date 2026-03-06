@@ -9,5 +9,3 @@ window.addEventListener('pageshow', (event) => {
   }
 });
 
-// Log startup
-console.log('Dashboard starting...');

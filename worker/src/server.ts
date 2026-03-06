@@ -5,12 +5,15 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 import { runImportWorker } from './worker.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { buildExportUrl } from './services/google-docs.js';
 import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
   initSupabase,
+  getSupabase,
   getArticleById,
   insertArticle,
   insertAuditLog,
@@ -36,6 +39,32 @@ import { apiV1Routes } from './routes/api-v1.js';
 // Initialize Supabase
 initSupabase();
 
+// Auth middleware: validates Bearer token and checks allowed_users
+async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
+  const authHeader = request.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.slice(7);
+  const supabase = getSupabase();
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
+  }
+
+  const { data: allowed } = await supabase
+    .from('allowed_users')
+    .select('is_active')
+    .eq('email', user.email)
+    .single();
+
+  if (!allowed?.is_active) {
+    return reply.status(403).send({ error: 'FORBIDDEN', message: 'User not authorized' });
+  }
+}
+
 const fastify = Fastify({
   logger: true,
   keepAliveTimeout: 65000,  // 65s > Kong's 60s upstream timeout
@@ -44,7 +73,17 @@ const fastify = Fastify({
 
 // Enable CORS
 await fastify.register(cors, {
-  origin: true,
+  origin: [
+    'http://localhost:8000',
+    'http://localhost:8973',
+    process.env.PUBLIC_URL,
+  ].filter(Boolean) as string[],
+});
+
+// Rate limiting
+await fastify.register(rateLimit, {
+  max: 100,
+  timeWindow: '15 minutes',
 });
 
 // Enable multipart/form-data for file uploads
@@ -120,11 +159,11 @@ fastify.get<{
     )
     .replace(
       '</head>',
-      `<script>window.__BOOK_CONFIG__=${JSON.stringify({
+      `<script>window.__BOOK_CONFIG__=${safeJsonForScript({
         pdfSrc,
-        turnPage: book.turn_page,
+        turnPage: book.turn_page === 'right' ? 'right' : 'left',
         title: book.title,
-      }).replace(/</g, '\\u003c')};</script>\n</head>`
+      })};</script>\n</head>`
     );
 
   // 背景更新點擊數
@@ -141,6 +180,14 @@ function escapeAttr(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function safeJsonForScript(obj: unknown): string {
+  return JSON.stringify(obj)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/'/g, '\\u0027');
+}
+
 // Public API v1
 await fastify.register(apiV1Routes, { prefix: '/api/v1' });
 
@@ -152,7 +199,19 @@ fastify.get('/health', async () => {
 // Test Google Drive access
 fastify.post<{
   Body: { folder_url: string; provider_token: string };
-}>('/test-drive', async (request, reply) => {
+}>('/test-drive', {
+  preHandler: [requireAuth],
+  schema: {
+    body: {
+      type: 'object',
+      required: ['folder_url', 'provider_token'],
+      properties: {
+        folder_url: { type: 'string' },
+        provider_token: { type: 'string' },
+      },
+    },
+  },
+}, async (request, reply) => {
   const { folder_url, provider_token } = request.body;
 
   if (!folder_url || !provider_token) {
@@ -190,7 +249,23 @@ fastify.post<{
     drive_folder_url?: string;
     provider_token?: string;
   };
-}>('/import', async (request, reply) => {
+}>('/import', {
+  preHandler: [requireAuth],
+  config: { rateLimit: { max: 5, timeWindow: '1 hour' } },
+  schema: {
+    body: {
+      type: 'object',
+      required: ['doc_url'],
+      properties: {
+        doc_url: { type: 'string' },
+        weekly_id: { type: 'integer' },
+        user_email: { type: 'string' },
+        drive_folder_url: { type: 'string' },
+        provider_token: { type: 'string' },
+      },
+    },
+  },
+}, async (request, reply) => {
   const { doc_url, weekly_id, user_email, drive_folder_url, provider_token } = request.body;
 
   console.log(`[Import] weekly_id=${weekly_id}, drive_folder_url=${drive_folder_url ? 'YES' : 'NO'}, provider_token=${provider_token ? 'YES' : 'NO'}`);
@@ -270,7 +345,19 @@ fastify.post<{
     article_id: number;
     user_email?: string;
   };
-}>('/rewrite', async (request, reply) => {
+}>('/rewrite', {
+  preHandler: [requireAuth],
+  schema: {
+    body: {
+      type: 'object',
+      required: ['article_id'],
+      properties: {
+        article_id: { type: 'integer' },
+        user_email: { type: 'string' },
+      },
+    },
+  },
+}, async (request, reply) => {
   const { article_id, user_email } = request.body;
 
   if (!article_id) {
@@ -340,7 +427,18 @@ fastify.post<{
   Body: {
     article_id: number;
   };
-}>('/generate-description', async (request, reply) => {
+}>('/generate-description', {
+  preHandler: [requireAuth],
+  schema: {
+    body: {
+      type: 'object',
+      required: ['article_id'],
+      properties: {
+        article_id: { type: 'integer' },
+      },
+    },
+  },
+}, async (request, reply) => {
   const { article_id } = request.body;
 
   if (!article_id) {
@@ -383,7 +481,7 @@ fastify.post<{
   Body: {
     limit?: number;
   };
-}>('/batch-generate-descriptions', async (request, reply) => {
+}>('/batch-generate-descriptions', { preHandler: [requireAuth] }, async (request, reply) => {
   const { limit = 10 } = request.body || {};
 
   try {
@@ -482,7 +580,7 @@ fastify.get<{
 });
 
 // 創建電子書（上傳 PDF + 資料庫）
-fastify.post('/books/create', async (request, reply) => {
+fastify.post('/books/create', { preHandler: [requireAuth], config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (request, reply) => {
   try {
     const data = await request.file();
 
@@ -523,6 +621,14 @@ fastify.post('/books/create', async (request, reply) => {
       chunks.push(chunk);
     }
     const rawPdfBuffer = Buffer.concat(chunks);
+
+    // Validate PDF magic bytes
+    if (rawPdfBuffer.length < 4 || rawPdfBuffer.toString('ascii', 0, 4) !== '%PDF') {
+      return reply.status(400).send({
+        error: 'INVALID_PDF',
+        message: '上傳的檔案不是有效的 PDF',
+      });
+    }
 
     // 0. 壓縮 PDF（保持高畫質）
     const compressionQuality = (fields.compression_quality as 'screen' | 'ebook' | 'printer' | 'prepress') || 'ebook';
@@ -639,7 +745,7 @@ fastify.post('/books/create', async (request, reply) => {
 fastify.put<{
   Params: { id: string };
   Body: Record<string, unknown>;
-}>('/books/:id', async (request, reply) => {
+}>('/books/:id', { preHandler: [requireAuth] }, async (request, reply) => {
   const bookId = parseInt(request.params.id, 10);
   const updates = request.body;
 
@@ -657,7 +763,7 @@ fastify.put<{
 // 刪除電子書
 fastify.delete<{
   Params: { id: string };
-}>('/books/:id', async (request, reply) => {
+}>('/books/:id', { preHandler: [requireAuth] }, async (request, reply) => {
   const bookId = parseInt(request.params.id, 10);
 
   try {
@@ -689,7 +795,7 @@ fastify.get('/books/compression-status', async () => {
 // 批次產生缺少縮圖的書籍縮圖
 fastify.post<{
   Body: { limit?: number };
-}>('/books/generate-thumbnails', async (request, reply) => {
+}>('/books/generate-thumbnails', { preHandler: [requireAuth] }, async (request, reply) => {
   const { limit = 20 } = request.body || {};
 
   try {

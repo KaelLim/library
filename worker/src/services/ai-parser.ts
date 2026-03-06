@@ -48,6 +48,14 @@ ${markdown}`;
 
   try {
     const parsed = JSON.parse(jsonStr.trim()) as ParsedWeekly;
+    if (!parsed.categories || !Array.isArray(parsed.categories)) {
+      throw new Error('AI response missing required field: categories');
+    }
+    for (const cat of parsed.categories) {
+      if (!cat.articles || !Array.isArray(cat.articles)) {
+        throw new Error(`Category "${cat.name}" missing required field: articles`);
+      }
+    }
     parsed.weekly_id = weeklyId; // 確保 weekly_id 正確
     return parsed;
   } catch (e) {

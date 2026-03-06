@@ -1,4 +1,5 @@
 import type { ImportRequest, RewriteRequest, ApiError } from '../types/index.js';
+import { authStore } from '../stores/auth-store.js';
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || '/worker';
 
@@ -6,12 +7,20 @@ async function fetchWorker<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+
+  // Attach auth token for authenticated requests
+  const token = authStore.session?.access_token;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${WORKER_URL}${endpoint}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -63,10 +72,17 @@ export async function checkWorkerHealth(): Promise<HealthResponse> {
 }
 
 export function extractDocId(url: string): string | null {
+  // Validate domain
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.endsWith('google.com')) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
   // Handle various Google Docs URL formats
-  // https://docs.google.com/document/d/DOC_ID/edit
-  // https://docs.google.com/document/d/DOC_ID/
-  // https://docs.google.com/document/d/DOC_ID
   const patterns = [
     /\/document\/d\/([a-zA-Z0-9_-]+)/,
     /docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/,

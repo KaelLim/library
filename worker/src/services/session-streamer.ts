@@ -2,6 +2,23 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { getSupabase } from './supabase.js';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
+// Type definitions for Claude Agent SDK query messages
+interface QueryStreamEvent {
+  type: 'stream_event';
+  event: {
+    type: string;
+    delta?: { type: string; text?: string };
+  };
+}
+
+interface QueryResult {
+  type: 'result';
+  subtype: 'success' | 'error';
+  result?: string;
+}
+
+type QueryMessage = QueryStreamEvent | QueryResult | { type: string };
+
 export interface SessionStreamOptions {
   weeklyId: number;
   model?: string;
@@ -114,6 +131,8 @@ export async function runSessionWithStreaming(
   let result = '';
   let accumulatedText = '';
   let streamEventCount = 0;
+  const QUERY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+  const startTime = Date.now();
 
   try {
     console.log('[Query] Starting with prompt length:', prompt.length);
@@ -135,10 +154,16 @@ export async function runSessionWithStreaming(
         includePartialMessages: true, // 關鍵！啟用 token-level streaming
       },
     })) {
+      // Check timeout
+      if (Date.now() - startTime > QUERY_TIMEOUT) {
+        throw new Error('AI query timed out after 5 minutes');
+      }
+
       // 處理 stream_event (partial messages - token level)
-      if (msg.type === 'stream_event') {
+      const message = msg as QueryMessage;
+      if (message.type === 'stream_event') {
         streamEventCount++;
-        const event = (msg as any).event;
+        const event = (message as QueryStreamEvent).event;
 
         // content_block_delta 包含實際的 text delta
         if (event?.type === 'content_block_delta') {
@@ -160,7 +185,7 @@ export async function runSessionWithStreaming(
       }
 
       // 處理結果
-      if (msg.type === 'result') {
+      if (message.type === 'result') {
         // 廣播剩餘的文字
         if (accumulatedText) {
           await broadcast({
@@ -170,14 +195,15 @@ export async function runSessionWithStreaming(
           });
         }
 
-        console.log('[Query] Result subtype:', (msg as any).subtype);
+        const resultMsg = message as QueryResult;
+        console.log('[Query] Result subtype:', resultMsg.subtype);
         console.log('[Query] Stream events:', streamEventCount);
 
-        if ((msg as any).subtype === 'success') {
-          result = (msg as any).result;
+        if (resultMsg.subtype === 'success') {
+          result = resultMsg.result || '';
           console.log('[Query] Success, result length:', result?.length || 0);
         } else {
-          throw new Error(`Query failed: ${JSON.stringify(msg)}`);
+          throw new Error(`Query failed: ${JSON.stringify(message)}`);
         }
       }
     }

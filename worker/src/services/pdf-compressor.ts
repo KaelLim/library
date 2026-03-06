@@ -52,8 +52,15 @@ export async function compressPdf(
 ): Promise<{ buffer: Buffer; originalSize: number; compressedSize: number; ratio: number }> {
   const originalSize = pdfBuffer.length;
   const quality = options.quality || 'ebook';
+  const VALID_QUALITIES = ['screen', 'ebook', 'printer', 'prepress'] as const;
+  if (!VALID_QUALITIES.includes(quality as any)) {
+    throw new Error(`Invalid quality: ${quality}. Must be one of: ${VALID_QUALITIES.join(', ')}`);
+  }
   const settings = QUALITY_SETTINGS[quality];
   const dpi = options.imageDpi || settings.dpi;
+  if (dpi < 50 || dpi > 600) {
+    throw new Error(`Invalid DPI: ${dpi}. Must be between 50 and 600`);
+  }
 
   // 檢查 Ghostscript 是否可用
   const gsAvailable = await isGhostscriptAvailable();

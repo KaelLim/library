@@ -68,7 +68,11 @@ ${originalContent}`;
   }
 
   try {
-    return JSON.parse(jsonStr.trim()) as RewrittenArticle;
+    const result = JSON.parse(jsonStr.trim()) as RewrittenArticle;
+    if (!result.title || !result.content) {
+      throw new Error('AI rewrite response missing required fields: title, content');
+    }
+    return result;
   } catch (e) {
     throw new Error(`Failed to parse AI rewrite response as JSON: ${e}`);
   }

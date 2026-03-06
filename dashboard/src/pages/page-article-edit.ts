@@ -1,4 +1,5 @@
 import { LitElement, html, css } from 'lit';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
 import type { Article, Category } from '../types/index.js';
@@ -436,8 +437,11 @@ export class PageArticleEdit extends LitElement {
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<figure class="image-block"><img src="$2" alt="$1"><figcaption>$1</figcaption></figure>')
       // Links
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, text: string, url: string) => {
-        const safeUrl = url.replace(/^javascript:/i, '');
-        return `<a href="${safeUrl}" target="_blank">${text}</a>`;
+        // Block javascript:, data:, and vbscript: protocols
+        if (/^(javascript|data|vbscript):/i.test(url.trim())) {
+          return text;
+        }
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
       })
       // Code blocks
       .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
@@ -643,7 +647,7 @@ export class PageArticleEdit extends LitElement {
               <div class="pane-header">
                 <span class="pane-title">預覽</span>
               </div>
-              <div class="preview-content" .innerHTML=${this.renderMarkdown(this.content)}></div>
+              <div class="preview-content">${unsafeHTML(this.renderMarkdown(this.content))}</div>
             </div>
           </div>
         </div>

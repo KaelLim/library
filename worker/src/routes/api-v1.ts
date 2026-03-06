@@ -1,8 +1,33 @@
-import { FastifyPluginAsync } from 'fastify';
+import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { getSupabase } from '../services/supabase.js';
 import { subscribeToken, unsubscribeToken, sendPushNotification } from '../services/push-notification.js';
+
+async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
+  const authHeader = request.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.slice(7);
+  const supabase = getSupabase();
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
+  }
+
+  const { data: allowed } = await supabase
+    .from('allowed_users')
+    .select('is_active')
+    .eq('email', user.email)
+    .single();
+
+  if (!allowed?.is_active) {
+    return reply.status(403).send({ error: 'FORBIDDEN', message: 'User not authorized' });
+  }
+}
 
 const paginationQueryProps = {
   limit: { type: 'string', description: '每頁筆數 (max 100, default 20)' },
@@ -386,6 +411,8 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{
     Body: { title: string; body: string; url?: string };
   }>('/push/send', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 10, timeWindow: '1 hour' } },
     schema: {
       tags: ['推播'],
       summary: '發送推播通知',
