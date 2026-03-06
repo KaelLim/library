@@ -12,6 +12,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 async function start() {
   const fastify = Fastify({
     logger: true,
+    keepAliveTimeout: 65000,  // 65s > Kong's 60s upstream timeout
+    connectionTimeout: 0,
   });
 
   // Serve static files from the client build

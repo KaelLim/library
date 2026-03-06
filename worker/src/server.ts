@@ -38,6 +38,8 @@ initSupabase();
 
 const fastify = Fastify({
   logger: true,
+  keepAliveTimeout: 65000,  // 65s > Kong's 60s upstream timeout
+  connectionTimeout: 0,     // 不限制連線建立時間
 });
 
 // Enable CORS
