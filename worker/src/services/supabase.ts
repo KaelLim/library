@@ -52,30 +52,6 @@ export async function getOrCreateWeekly(weekNumber: number): Promise<Weekly> {
 // Category 操作
 // =====================
 
-export async function getCategoryByName(name: string): Promise<Category | null> {
-  const { data } = await getSupabase()
-    .from('category')
-    .select('*')
-    .eq('name', name)
-    .single();
-
-  return data as Category | null;
-}
-
-export async function getOrCreateCategory(name: string, sortOrder: number): Promise<Category> {
-  const existing = await getCategoryByName(name);
-  if (existing) return existing;
-
-  const { data, error } = await getSupabase()
-    .from('category')
-    .insert({ name, sort_order: sortOrder })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as Category;
-}
-
 // =====================
 // Articles 操作
 // =====================
@@ -89,19 +65,6 @@ export async function insertArticle(article: Omit<Article, 'id' | 'created_at' |
 
   if (error) throw error;
   return data as Article;
-}
-
-export async function getArticlesByWeekly(weeklyId: number, platform: 'docs' | 'digital'): Promise<Article[]> {
-  const { data, error } = await getSupabase()
-    .from('articles')
-    .select('*')
-    .eq('weekly_id', weeklyId)
-    .eq('platform', platform)
-    .order('category_id')
-    .order('id');
-
-  if (error) throw error;
-  return data as Article[];
 }
 
 // =====================
@@ -286,19 +249,6 @@ export async function getBooksCategories(): Promise<BooksCategory[]> {
 
   if (error) throw error;
   return data as BooksCategory[];
-}
-
-/**
- * 根據名稱取得電子書分類
- */
-export async function getBooksCategoryByName(name: string): Promise<BooksCategory | null> {
-  const { data } = await getSupabase()
-    .from('books_category')
-    .select('*')
-    .eq('name', name)
-    .single();
-
-  return data as BooksCategory | null;
 }
 
 /**

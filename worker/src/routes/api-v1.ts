@@ -377,7 +377,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['token'],
         properties: {
-          token: { type: 'string', description: 'FCM token' },
+          token: {
+            type: 'string',
+            minLength: 50,
+            maxLength: 255,
+            pattern: '^[a-zA-Z0-9_:-]+$',
+            description: 'FCM token',
+          },
         },
       },
     },
@@ -398,7 +404,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['token'],
         properties: {
-          token: { type: 'string', description: 'FCM token' },
+          token: {
+            type: 'string',
+            minLength: 50,
+            maxLength: 255,
+            pattern: '^[a-zA-Z0-9_:-]+$',
+            description: 'FCM token',
+          },
         },
       },
     },
@@ -421,9 +433,9 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['title', 'body'],
         properties: {
-          title: { type: 'string', description: '通知標題' },
-          body: { type: 'string', description: '通知內文' },
-          url: { type: 'string', description: '點擊後開啟的網址' },
+          title: { type: 'string', minLength: 1, maxLength: 100, description: '通知標題' },
+          body: { type: 'string', minLength: 1, maxLength: 500, description: '通知內文' },
+          url: { type: 'string', maxLength: 500, description: '點擊後開啟的網址' },
         },
       },
     },

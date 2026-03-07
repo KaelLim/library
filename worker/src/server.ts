@@ -307,7 +307,7 @@ fastify.post<{
   } catch (error) {
     return reply.status(500).send({
       error: 'DOC_FETCH_ERROR',
-      message: `無法連接 Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      message: '無法連接 Google Docs，請稍後再試',
     });
   }
 
@@ -736,7 +736,7 @@ fastify.post('/books/create', { preHandler: [requireAuth], config: { rateLimit: 
     console.error('[Books] Error:', error);
     return reply.status(500).send({
       error: 'BOOK_CREATE_ERROR',
-      message: error instanceof Error ? error.message : 'Unknown error',
+      message: '電子書建立失敗，請稍後再試',
     });
   }
 });

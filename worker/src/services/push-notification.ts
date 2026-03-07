@@ -10,14 +10,22 @@ function initFirebase() {
 
   let serviceAccount: admin.ServiceAccount;
 
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    // Cloudflare Workers: 從環境變數讀取 JSON
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } else {
-    // 本地開發: 從檔案讀取
-    const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-      || resolve(process.cwd(), 'firebase-service-account.json');
-    serviceAccount = JSON.parse(readFileSync(saPath, 'utf-8'));
+  try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } else {
+      const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+        || resolve(process.cwd(), 'firebase-service-account.json');
+      serviceAccount = JSON.parse(readFileSync(saPath, 'utf-8'));
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[Firebase] Failed to load service account:', msg);
+    throw new Error(`Firebase initialization failed: ${msg}`);
+  }
+
+  if (!serviceAccount.projectId && !(serviceAccount as any).project_id) {
+    throw new Error('Firebase service account missing project_id');
   }
 
   admin.initializeApp({
