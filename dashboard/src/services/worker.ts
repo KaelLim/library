@@ -101,3 +101,23 @@ export function extractDocId(url: string): string | null {
 export function isValidDocUrl(url: string): boolean {
   return extractDocId(url) !== null;
 }
+
+export interface PushNotificationRequest {
+  title: string;
+  body: string;
+  url?: string;
+}
+
+export interface PushNotificationResponse {
+  sent: number;
+  failed: number;
+}
+
+export async function sendPushNotification(
+  request: PushNotificationRequest
+): Promise<PushNotificationResponse> {
+  return fetchWorker<PushNotificationResponse>('/api/v1/push/send', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
