@@ -116,8 +116,28 @@ export interface PushNotificationResponse {
 export async function sendPushNotification(
   request: PushNotificationRequest
 ): Promise<PushNotificationResponse> {
-  return fetchWorker<PushNotificationResponse>('/api/v1/push/send', {
+  // 走公開 API 路由（/api/v1/*），不走 /worker/*（需 Kong API key）
+  // Worker 的 requireAuth 仍會驗證 Supabase token
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const token = authStore.session?.access_token;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch('/api/v1/push/send', {
     method: 'POST',
+    headers,
     body: JSON.stringify(request),
   });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({
+      message: `Request failed with status ${response.status}`,
+    }));
+    throw new Error(error.message);
+  }
+
+  return response.json();
 }

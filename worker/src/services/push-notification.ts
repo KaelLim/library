@@ -92,11 +92,14 @@ export async function sendPushNotification(options: {
 
   const response = await admin.messaging().sendEachForMulticast(message);
 
-  // 清理無效 token
+  // 記錄失敗原因並清理無效 token
   const invalidTokens: string[] = [];
   response.responses.forEach((resp, idx) => {
-    if (!resp.success && resp.error?.code === 'messaging/registration-token-not-registered') {
-      invalidTokens.push(tokens[idx]);
+    if (!resp.success) {
+      console.error(`[Push] Token ${idx} failed:`, resp.error?.code, resp.error?.message);
+      if (resp.error?.code === 'messaging/registration-token-not-registered') {
+        invalidTokens.push(tokens[idx]);
+      }
     }
   });
 
