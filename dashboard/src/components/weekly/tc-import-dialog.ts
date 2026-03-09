@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
-import { isValidDocUrl, startImport } from '../../services/worker.js';
+import { isValidDocUrl, startImport, checkClaudeStatus, claudeLogin } from '../../services/worker.js';
 import { getNextWeekNumber } from '../../services/weekly.js';
 import { authStore } from '../../stores/auth-store.js';
 import { toastStore } from '../../stores/toast-store.js';
@@ -28,6 +28,50 @@ export class TcImportDialog extends LitElement {
       border-radius: var(--radius-md);
       font-size: var(--font-size-sm);
       color: var(--color-info);
+    }
+
+    .claude-status {
+      padding: var(--spacing-3) var(--spacing-4);
+      border-radius: var(--radius-md);
+      font-size: var(--font-size-sm);
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-2);
+    }
+
+    .claude-status.checking {
+      background: var(--color-info-bg);
+      color: var(--color-info);
+    }
+
+    .claude-status.ok {
+      background: var(--color-success-bg, #ecfdf5);
+      color: var(--color-success, #059669);
+    }
+
+    .claude-status.error {
+      background: var(--color-error-bg, #fef2f2);
+      color: var(--color-error, #dc2626);
+    }
+
+    .claude-login-btn {
+      margin-left: auto;
+      padding: var(--spacing-1) var(--spacing-3);
+      background: var(--color-primary);
+      color: white;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: var(--font-size-sm);
+    }
+
+    .claude-login-btn:hover {
+      opacity: 0.9;
+    }
+
+    .claude-login-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     .footer-buttons {
@@ -57,12 +101,24 @@ export class TcImportDialog extends LitElement {
   @state()
   private urlError = '';
 
+  @state()
+  private claudeAuthenticated: boolean | null = null; // null = checking
+
+  @state()
+  private claudeLoggingIn = false;
+
   @query('tc-dialog')
   private dialog!: HTMLElement & { close: () => void };
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
     await this.loadNextWeekNumber();
+  }
+
+  updated(changedProperties: Map<string, unknown>): void {
+    if (changedProperties.has('open') && this.open) {
+      this.checkClaude();
+    }
   }
 
   private async loadNextWeekNumber(): Promise<void> {
@@ -106,6 +162,8 @@ export class TcImportDialog extends LitElement {
             @tc-input=${this.handleWeekInput}
           ></tc-input>
 
+          ${this.renderClaudeStatus()}
+
           <div class="info">
             系統將自動下載文件、解析內容、並進行 AI 改寫。整個過程需要數分鐘。
           </div>
@@ -129,7 +187,57 @@ export class TcImportDialog extends LitElement {
   }
 
   private get isValid(): boolean {
-    return isValidDocUrl(this.docUrl) && this.weekNumber > 0;
+    return isValidDocUrl(this.docUrl) && this.weekNumber > 0 && this.claudeAuthenticated === true;
+  }
+
+  private renderClaudeStatus() {
+    if (this.claudeAuthenticated === null) {
+      return html`<div class="claude-status checking">檢查 Claude Code 登入狀態...</div>`;
+    }
+    if (this.claudeAuthenticated) {
+      return html`<div class="claude-status ok">Claude Code 已登入</div>`;
+    }
+    return html`
+      <div class="claude-status error">
+        Claude Code 尚未登入，請先完成授權
+        <button
+          class="claude-login-btn"
+          ?disabled=${this.claudeLoggingIn}
+          @click=${this.handleClaudeLogin}
+        >
+          ${this.claudeLoggingIn ? '取得連結中...' : '登入'}
+        </button>
+      </div>
+    `;
+  }
+
+  private async checkClaude(): Promise<void> {
+    this.claudeAuthenticated = null;
+    try {
+      const status = await checkClaudeStatus();
+      this.claudeAuthenticated = status.authenticated;
+    } catch {
+      this.claudeAuthenticated = false;
+    }
+  }
+
+  private async handleClaudeLogin(): Promise<void> {
+    this.claudeLoggingIn = true;
+    try {
+      const result = await claudeLogin();
+      if (result.success && result.login_url) {
+        window.open(result.login_url, '_blank');
+        toastStore.success('請在新視窗中完成授權，完成後點擊重新檢查');
+        // Poll status after a delay
+        setTimeout(() => this.checkClaude(), 5000);
+      } else {
+        toastStore.error('無法取得登入連結：' + result.message);
+      }
+    } catch (error) {
+      toastStore.error('登入失敗：' + (error instanceof Error ? error.message : '未知錯誤'));
+    } finally {
+      this.claudeLoggingIn = false;
+    }
   }
 
   private handleUrlInput(e: CustomEvent): void {
@@ -190,6 +298,7 @@ export class TcImportDialog extends LitElement {
     this.driveFolderUrl = '';
     this.urlError = '';
     this.loadNextWeekNumber();
+    this.checkClaude();
   }
 }
 

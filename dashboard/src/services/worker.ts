@@ -104,6 +104,30 @@ export function isValidDocUrl(url: string): boolean {
   return extractDocId(url) !== null;
 }
 
+export interface ClaudeStatusResponse {
+  authenticated: boolean;
+  message: string;
+  detail?: string;
+}
+
+export async function checkClaudeStatus(): Promise<ClaudeStatusResponse> {
+  return fetchWorker<ClaudeStatusResponse>('/claude/status', {
+    method: 'GET',
+  });
+}
+
+export interface ClaudeLoginResponse {
+  success: boolean;
+  login_url?: string;
+  message: string;
+}
+
+export async function claudeLogin(): Promise<ClaudeLoginResponse> {
+  return fetchWorker<ClaudeLoginResponse>('/claude/login', {
+    method: 'POST',
+  });
+}
+
 export interface PushNotificationRequest {
   title: string;
   body: string;

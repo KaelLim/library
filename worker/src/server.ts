@@ -196,6 +196,93 @@ fastify.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() };
 });
 
+// Claude Code auth status check
+fastify.get('/claude/status', {
+  preHandler: [requireAuth],
+}, async (_request, reply) => {
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const execFileAsync = promisify(execFile);
+
+  try {
+    const { stdout } = await execFileAsync('claude', ['auth', 'status'], { timeout: 10000 });
+    const authInfo = JSON.parse(stdout);
+    return {
+      authenticated: authInfo.loggedIn === true,
+      message: authInfo.loggedIn ? 'Claude Code 已登入' : 'Claude Code 尚未登入',
+      email: authInfo.email || undefined,
+    };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return reply.status(200).send({ authenticated: false, message: 'Claude Code 尚未登入', detail: msg });
+  }
+});
+
+// Claude Code login trigger
+fastify.post('/claude/login', {
+  preHandler: [requireAuth],
+}, async (_request, reply) => {
+  const { spawn } = await import('child_process');
+
+  return new Promise((resolve) => {
+    const child = spawn('claude', ['login'], {
+      env: { ...process.env, FORCE_COLOR: '0' },
+    });
+
+    let stdout = '';
+    let urlFound = '';
+    const timeout = setTimeout(() => {
+      child.kill();
+      resolve(reply.status(408).send({
+        success: false,
+        message: 'Login process timed out',
+      }));
+    }, 30000);
+
+    child.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+      // Look for URL in output
+      const urlMatch = stdout.match(/https:\/\/[^\s\n]+/);
+      if (urlMatch && !urlFound) {
+        urlFound = urlMatch[0];
+        clearTimeout(timeout);
+        // Don't kill the process - let it wait for browser auth
+        // But return the URL immediately
+        resolve(reply.send({
+          success: true,
+          login_url: urlFound,
+          message: '請在瀏覽器中完成授權',
+        }));
+      }
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      stdout += data.toString();
+      const urlMatch = stdout.match(/https:\/\/[^\s\n]+/);
+      if (urlMatch && !urlFound) {
+        urlFound = urlMatch[0];
+        clearTimeout(timeout);
+        resolve(reply.send({
+          success: true,
+          login_url: urlFound,
+          message: '請在瀏覽器中完成授權',
+        }));
+      }
+    });
+
+    child.on('close', () => {
+      clearTimeout(timeout);
+      if (!urlFound) {
+        resolve(reply.send({
+          success: false,
+          message: '無法取得登入連結',
+          detail: stdout,
+        }));
+      }
+    });
+  });
+});
+
 // Test Google Drive access
 fastify.post<{
   Body: { folder_url: string; provider_token: string };
