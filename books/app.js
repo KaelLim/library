@@ -106,8 +106,11 @@ async function init() {
         pdfSource = { data: await res.arrayBuffer() };
       }
     }
+    const docParams = typeof pdfSource === 'string'
+      ? { url: pdfSource }
+      : pdfSource;
     pdfDoc = await pdfjsLib.getDocument({
-      ...pdfSource,
+      ...docParams,
       cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/cmaps/',
       cMapPacked: true,
     }).promise;
