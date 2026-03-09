@@ -1,8 +1,33 @@
-import { FastifyPluginAsync } from 'fastify';
+import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { getSupabase } from '../services/supabase.js';
 import { subscribeToken, unsubscribeToken, sendPushNotification } from '../services/push-notification.js';
+
+async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
+  const authHeader = request.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.slice(7);
+  const supabase = getSupabase();
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
+  }
+
+  const { data: allowed } = await supabase
+    .from('allowed_users')
+    .select('is_active')
+    .eq('email', user.email)
+    .single();
+
+  if (!allowed?.is_active) {
+    return reply.status(403).send({ error: 'FORBIDDEN', message: 'User not authorized' });
+  }
+}
 
 const paginationQueryProps = {
   limit: { type: 'string', description: '每頁筆數 (max 100, default 20)' },
@@ -13,6 +38,17 @@ function paginate(data: any[], total: number, limit: number, offset: number) {
   const page = Math.floor(offset / limit) + 1;
   const page_count = Math.ceil(total / limit) || 1;
   return { total, page, page_count, limit, offset, data };
+}
+
+function extractImagesFromMarkdown(content: string): string[] {
+  if (!content) return [];
+  const regex = /!\[[^\]]*\]\(([^\s)]+)\)/g;
+  const images: string[] = [];
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    images.push(match[1]);
+  }
+  return images;
 }
 
 const apiV1Routes: FastifyPluginAsync = async (fastify) => {
@@ -155,6 +191,92 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       article_count: (articles || []).length,
       categories,
     };
+  });
+
+  // GET /weekly-feed - 週報 Feed（含文章摘要，取代 N+1 查詢）
+  fastify.get<{
+    Querystring: { limit?: string; offset?: string };
+  }>('/weekly-feed', {
+    schema: {
+      tags: ['週報'],
+      summary: '週報 Feed（含文章摘要）',
+      description: '一次回傳週報列表 + 每期各分類第一篇文章，取代 N+1 查詢',
+      querystring: {
+        type: 'object',
+        properties: {
+          ...paginationQueryProps,
+        },
+      },
+    },
+  }, async (request) => {
+    const { limit: limitStr, offset: offsetStr } = request.query;
+    const limit = Math.min(parseInt(limitStr || '6', 10), 20);
+    const offset = parseInt(offsetStr || '0', 10);
+
+    // 1. 取得週報列表
+    const { data: weeklyList, count, error: weeklyError } = await getSupabase()
+      .from('weekly')
+      .select('*', { count: 'exact' })
+      .eq('status', 'published')
+      .order('week_number', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (weeklyError) throw weeklyError;
+    if (!weeklyList || weeklyList.length === 0) {
+      return paginate([], count || 0, limit, offset);
+    }
+
+    // 2. 一次取得所有相關文章（IN query，取代 N+1）
+    const weekNumbers = weeklyList.map((w: any) => w.week_number);
+    const { data: allArticles, error: artError } = await getSupabase()
+      .from('articles')
+      .select('id, title, description, content, category_id, weekly_id')
+      .in('weekly_id', weekNumbers)
+      .eq('platform', 'digital')
+      .order('category_id')
+      .order('id');
+
+    if (artError) throw artError;
+
+    // 3. 按 weekly_id 分組，每個 category 取第一篇
+    const articlesByWeekly = new Map<number, any[]>();
+    for (const art of allArticles || []) {
+      if (!articlesByWeekly.has(art.weekly_id)) {
+        articlesByWeekly.set(art.weekly_id, []);
+      }
+      articlesByWeekly.get(art.weekly_id)!.push(art);
+    }
+
+    // 4. 組合結果
+    const data = weeklyList.map((weekly: any) => {
+      const articles = articlesByWeekly.get(weekly.week_number) || [];
+
+      const categoryFirstMap = new Map<number, any>();
+      for (const art of articles) {
+        if (!categoryFirstMap.has(art.category_id)) {
+          const images = extractImagesFromMarkdown(art.content);
+          categoryFirstMap.set(art.category_id, {
+            id: art.id,
+            title: art.title,
+            description: art.description,
+            category_id: art.category_id,
+            images,
+          });
+        }
+      }
+
+      const slides = Array.from(categoryFirstMap.values())
+        .sort((a, b) => a.category_id - b.category_id);
+
+      return {
+        weekly_id: weekly.week_number,
+        publish_date: weekly.publish_date,
+        status: weekly.status,
+        slides,
+      };
+    });
+
+    return paginate(data, count || 0, limit, offset);
   });
 
   // GET /articles - 文章列表
@@ -352,7 +474,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['token'],
         properties: {
-          token: { type: 'string', description: 'FCM token' },
+          token: {
+            type: 'string',
+            minLength: 50,
+            maxLength: 255,
+            pattern: '^[a-zA-Z0-9_:-]+$',
+            description: 'FCM token',
+          },
         },
       },
     },
@@ -373,7 +501,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['token'],
         properties: {
-          token: { type: 'string', description: 'FCM token' },
+          token: {
+            type: 'string',
+            minLength: 50,
+            maxLength: 255,
+            pattern: '^[a-zA-Z0-9_:-]+$',
+            description: 'FCM token',
+          },
         },
       },
     },
@@ -386,6 +520,8 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{
     Body: { title: string; body: string; url?: string };
   }>('/push/send', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 10, timeWindow: '1 hour' } },
     schema: {
       tags: ['推播'],
       summary: '發送推播通知',
@@ -394,9 +530,9 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['title', 'body'],
         properties: {
-          title: { type: 'string', description: '通知標題' },
-          body: { type: 'string', description: '通知內文' },
-          url: { type: 'string', description: '點擊後開啟的網址' },
+          title: { type: 'string', minLength: 1, maxLength: 100, description: '通知標題' },
+          body: { type: 'string', minLength: 1, maxLength: 500, description: '通知內文' },
+          url: { type: 'string', maxLength: 500, description: '點擊後開啟的網址' },
         },
       },
     },

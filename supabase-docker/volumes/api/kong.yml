@@ -311,7 +311,7 @@ services:
     plugins:
       - name: cors
 
-  ## Worker API routes (週報匯入 + 電子書管理)
+  ## Worker API routes (週報匯入 + 電子書管理，需 API key)
   - name: worker
     _comment: 'Worker: /worker/* -> http://worker:3001/*'
     url: http://worker:3001/
@@ -322,6 +322,15 @@ services:
           - /worker/
     plugins:
       - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
 
   ## PDF Reader (自建翻頁電子書)
   - name: books-reader

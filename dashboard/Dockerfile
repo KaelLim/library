@@ -15,28 +15,12 @@ RUN npm ci
 COPY . .
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
-RUN npm run build
+RUN npm run build:client
 
-# Production stage
-FROM node:20-slim AS production
+# Production stage - Nginx
+FROM nginx:alpine
 
-# Install curl for healthcheck
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Copy package files and install production dependencies
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Copy built client and server
-COPY --from=builder /app/dist ./dist
-
-# Environment variables
-ENV NODE_ENV=production
-ENV PORT=8973
-ENV HOST=0.0.0.0
+COPY --from=builder /app/dist/client /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8973
-
-CMD ["node", "dist/server/index.js"]

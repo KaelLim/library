@@ -14,8 +14,8 @@ const LS_IS_ALLOWED = '_tc_is_allowed';
 class AuthStore {
   private _user: User | null = null;
   private _session: Session | null = null;
-  private _providerToken: string | null = localStorage.getItem(LS_PROVIDER_TOKEN);
-  private _providerRefreshToken: string | null = localStorage.getItem(LS_PROVIDER_REFRESH_TOKEN);
+  private _providerToken: string | null = sessionStorage.getItem(LS_PROVIDER_TOKEN);
+  private _providerRefreshToken: string | null = sessionStorage.getItem(LS_PROVIDER_REFRESH_TOKEN);
   private _isAllowed = localStorage.getItem(LS_IS_ALLOWED) === 'true';
   private _initialized = false;
   private _listeners: AuthCallback[] = [];
@@ -161,8 +161,8 @@ class AuthStore {
 
       return null;
     } catch {
-      // 網路錯誤，給予 benefit of the doubt
-      return session;
+      // 網路錯誤視為驗證失敗（fail closed）
+      return null;
     }
   }
 
@@ -184,10 +184,10 @@ class AuthStore {
    */
   private persistState(): void {
     if (this._providerToken) {
-      localStorage.setItem(LS_PROVIDER_TOKEN, this._providerToken);
+      sessionStorage.setItem(LS_PROVIDER_TOKEN, this._providerToken);
     }
     if (this._providerRefreshToken) {
-      localStorage.setItem(LS_PROVIDER_REFRESH_TOKEN, this._providerRefreshToken);
+      sessionStorage.setItem(LS_PROVIDER_REFRESH_TOKEN, this._providerRefreshToken);
     }
     if (this._user?.email) {
       localStorage.setItem(LS_USER_EMAIL, this._user.email);
@@ -203,6 +203,9 @@ class AuthStore {
     Object.keys(localStorage)
       .filter((k) => k.startsWith('sb-') || k.startsWith('_tc_'))
       .forEach((k) => localStorage.removeItem(k));
+    // Clear provider tokens from sessionStorage
+    sessionStorage.removeItem(LS_PROVIDER_TOKEN);
+    sessionStorage.removeItem(LS_PROVIDER_REFRESH_TOKEN);
     this._session = null;
     this._user = null;
     this._providerToken = null;

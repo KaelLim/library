@@ -13,6 +13,8 @@ services:
     container_name: supabase-studio
     image: ${STUDIO_IMAGE:-ghcr.io/kaellim/supabase-mac:latest}
     restart: unless-stopped
+    networks:
+      - backend
     healthcheck:
       test:
         [
@@ -66,9 +68,12 @@ services:
     container_name: supabase-kong
     image: kong:2.8.1
     restart: unless-stopped
+    networks:
+      - frontend
+      - backend
     ports:
-      - ${KONG_HTTP_PORT}:8000/tcp
-      - ${KONG_HTTPS_PORT}:8443/tcp
+      - 127.0.0.1:${KONG_HTTP_PORT}:8000/tcp
+      - 127.0.0.1:${KONG_HTTPS_PORT}:8443/tcp
     volumes:
       # https://github.com/supabase/supabase/issues/12661
       - ./volumes/api/kong.yml:/home/kong/temp.yml:ro,z
@@ -94,6 +99,8 @@ services:
     container_name: supabase-auth
     image: supabase/gotrue:v2.184.0
     restart: unless-stopped
+    networks:
+      - backend
     healthcheck:
       test:
         [
@@ -184,6 +191,13 @@ services:
     container_name: supabase-rest
     image: postgrest/postgrest:v14.1
     restart: unless-stopped
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sSf http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -208,6 +222,8 @@ services:
     container_name: realtime-dev.supabase-realtime
     image: supabase/realtime:v2.68.0
     restart: unless-stopped
+    networks:
+      - backend
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -246,6 +262,8 @@ services:
     container_name: supabase-storage
     image: supabase/storage-api:v1.33.0
     restart: unless-stopped
+    networks:
+      - backend
     volumes:
       - ./volumes/storage:/var/lib/storage:z
     healthcheck:
@@ -290,6 +308,8 @@ services:
     container_name: supabase-imgproxy
     image: darthsim/imgproxy:v3.8.0
     restart: unless-stopped
+    networks:
+      - backend
     volumes:
       - ./volumes/storage:/var/lib/storage:z
     healthcheck:
@@ -312,6 +332,8 @@ services:
     container_name: supabase-meta
     image: supabase/postgres-meta:v0.95.1
     restart: unless-stopped
+    networks:
+      - backend
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -331,6 +353,13 @@ services:
     container_name: supabase-edge-functions
     image: supabase/edge-runtime:v1.69.28
     restart: unless-stopped
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sSf http://localhost:9000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     volumes:
       - ./volumes/functions:/home/deno/functions:Z
     depends_on:
@@ -355,8 +384,10 @@ services:
     container_name: supabase-analytics
     image: supabase/logflare:1.27.0
     restart: unless-stopped
+    networks:
+      - backend
     ports:
-      - 4000:4000
+      - 127.0.0.1:4000:4000
     # Uncomment to use Big Query backend for analytics
     # volumes:
     #   - type: bind
@@ -403,6 +434,8 @@ services:
     container_name: supabase-db
     image: supabase/postgres:15.8.1.085
     restart: unless-stopped
+    networks:
+      - backend
     volumes:
       - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
       # Must be superuser to create event trigger
@@ -460,6 +493,8 @@ services:
     container_name: supabase-vector
     image: timberio/vector:0.28.1-alpine
     restart: unless-stopped
+    networks:
+      - backend
     volumes:
       - ./volumes/logs/vector.yml:/etc/vector/vector.yml:ro,z
       - ${DOCKER_SOCKET_LOCATION}:/var/run/docker.sock:ro,z
@@ -491,9 +526,11 @@ services:
     container_name: supabase-pooler
     image: supabase/supavisor:2.7.4
     restart: unless-stopped
+    networks:
+      - backend
     ports:
-      - ${POSTGRES_PORT}:5432
-      - ${POOLER_PROXY_PORT_TRANSACTION}:6543
+      - 127.0.0.1:${POSTGRES_PORT}:5432
+      - 127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION}:6543
     volumes:
       - ./volumes/pooler/pooler.exs:/etc/pooler/pooler.exs:ro,z
     healthcheck:
@@ -547,6 +584,8 @@ services:
   # Dashboard 前端介面
   dashboard:
     container_name: weekly-dashboard
+    networks:
+      - frontend
     build:
       context: ../dashboard
       dockerfile: Dockerfile
@@ -557,12 +596,13 @@ services:
     depends_on:
       kong:
         condition: service_started
-    environment:
-      NODE_ENV: production
-      PORT: "8973"
-      HOST: "0.0.0.0"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     healthcheck:
-      test: ["CMD", "curl", "-sSf", "http://localhost:8973/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8973/"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -570,6 +610,8 @@ services:
   # Worker API (週報匯入 + 電子書管理)
   worker:
     container_name: weekly-worker
+    networks:
+      - backend
     build:
       context: ../worker
       dockerfile: Dockerfile
@@ -589,11 +631,20 @@ services:
       - ../books:/app/books:ro
       - claude-credentials:/root/.claude
       - ../worker/firebase-service-account.json:/app/firebase-service-account.json:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
     healthcheck:
       test: ["CMD", "curl", "-sSf", "http://localhost:3001/health"]
       interval: 10s
       timeout: 5s
       retries: 3
+
+networks:
+  frontend:
+  backend:
 
 volumes:
   db-config:

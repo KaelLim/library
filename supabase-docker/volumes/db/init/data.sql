@@ -90,6 +90,6 @@ ON CONFLICT (name) DO NOTHING;
 -- 重設 sequence
 SELECT setval('category_id_seq', (SELECT COALESCE(MAX(id), 1) FROM category));
 
--- Storage bucket for weekly articles
+-- Storage bucket for weekly articles (public: images are accessed by the public website)
 INSERT INTO storage.buckets (id, name, public) VALUES ('weekly', 'weekly', true)
 ON CONFLICT (id) DO NOTHING;

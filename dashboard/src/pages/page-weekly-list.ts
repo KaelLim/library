@@ -3,6 +3,7 @@ import { customElement, state, query } from 'lit/decorators.js';
 import type { WeeklyStatus } from '../types/index.js';
 import type { WeeklyWithCount } from '../services/weekly.js';
 import { getWeeklyList, updateWeeklyStatus, deleteWeekly } from '../services/weekly.js';
+import { sendPushNotification } from '../services/worker.js';
 import { toastStore } from '../stores/toast-store.js';
 import '../components/layout/tc-app-shell.js';
 import '../components/ui/tc-button.js';
@@ -87,6 +88,115 @@ export class PageWeeklyList extends LitElement {
     .footer-buttons tc-button {
       flex: 1;
     }
+
+    .publish-confirm-content p {
+      margin: 0 0 16px;
+      color: var(--color-text-primary);
+      font-size: var(--font-size-sm);
+    }
+
+    .push-section {
+      border-top: 1px solid var(--color-border);
+      padding-top: 16px;
+    }
+
+    .push-toggle-row {
+      margin-bottom: 12px;
+    }
+
+    .push-toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--color-border);
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: var(--color-accent);
+    }
+
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+
+    .push-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .field-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-secondary);
+    }
+
+    .field-input {
+      padding: 8px 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--color-text-primary);
+      background: var(--color-bg-primary);
+      outline: none;
+      transition: border-color var(--transition-fast);
+    }
+
+    .field-input:focus {
+      border-color: var(--color-accent);
+    }
+
+    .field-textarea {
+      resize: vertical;
+      min-height: 48px;
+    }
   `;
 
   @state()
@@ -103,6 +213,15 @@ export class PageWeeklyList extends LitElement {
 
   @state()
   private confirmAction: { type: 'delete' | 'publish' | 'unpublish' | 'archive' | 'restore'; weekNumber: number } | null = null;
+
+  @state()
+  private sendPushOnPublish = true;
+
+  @state()
+  private pushTitle = '';
+
+  @state()
+  private pushBody = '';
 
   @query('tc-import-dialog')
   private importDialog!: HTMLElement & { show: () => void };
@@ -226,18 +345,17 @@ export class PageWeeklyList extends LitElement {
   private renderConfirmDialog() {
     if (!this.confirmAction) return '';
 
+    // Publish has its own dialog with push notification options
+    if (this.confirmAction.type === 'publish') {
+      return this.renderPublishDialog();
+    }
+
     const config = {
       delete: {
         title: '確認刪除',
         message: `確定要刪除第 ${this.confirmAction.weekNumber} 期週報嗎？此操作無法復原，所有相關文稿也將被刪除。`,
         confirmLabel: '刪除',
         confirmVariant: 'danger' as const,
-      },
-      publish: {
-        title: '確認發布',
-        message: `確定要發布第 ${this.confirmAction.weekNumber} 期週報嗎？`,
-        confirmLabel: '發布',
-        confirmVariant: 'primary' as const,
       },
       unpublish: {
         title: '確認取消發布',
@@ -284,6 +402,72 @@ export class PageWeeklyList extends LitElement {
     `;
   }
 
+  private renderPublishDialog() {
+    if (!this.confirmAction) return '';
+
+    return html`
+      <tc-dialog
+        open
+        dialogTitle="確認發布"
+        size="sm"
+        @tc-close=${this.handleConfirmClose}
+      >
+        <div class="publish-confirm-content">
+          <p>確定要發布第 ${this.confirmAction.weekNumber} 期週報嗎？</p>
+
+          <div class="push-section">
+            <div class="push-toggle-row">
+              <label class="push-toggle-label">
+                <label class="toggle-switch">
+                  <input
+                    type="checkbox"
+                    ?checked=${this.sendPushOnPublish}
+                    @change=${(e: Event) => (this.sendPushOnPublish = (e.target as HTMLInputElement).checked)}
+                  />
+                  <span class="toggle-slider"></span>
+                </label>
+                發送推播通知
+              </label>
+            </div>
+
+            ${this.sendPushOnPublish
+              ? html`
+                  <div class="push-fields">
+                    <div class="field">
+                      <label class="field-label">推播標題</label>
+                      <input
+                        type="text"
+                        class="field-input"
+                        .value=${this.pushTitle}
+                        @input=${(e: Event) => (this.pushTitle = (e.target as HTMLInputElement).value)}
+                      />
+                    </div>
+                    <div class="field">
+                      <label class="field-label">推播內容</label>
+                      <textarea
+                        class="field-input field-textarea"
+                        rows="2"
+                        .value=${this.pushBody}
+                        @input=${(e: Event) => (this.pushBody = (e.target as HTMLTextAreaElement).value)}
+                      ></textarea>
+                    </div>
+                  </div>
+                `
+              : ''}
+          </div>
+        </div>
+        <div slot="footer" class="footer-buttons">
+          <tc-button variant="secondary" @click=${this.handleConfirmClose}>
+            取消
+          </tc-button>
+          <tc-button variant="primary" @click=${this.handleConfirmAction}>
+            確認發布
+          </tc-button>
+        </div>
+      </tc-dialog>
+    `;
+  }
+
   private handleTabChange(e: CustomEvent): void {
     this.activeStatus = e.detail.tabId as WeeklyStatus | 'all';
     this.loadWeeklyList();
@@ -298,7 +482,11 @@ export class PageWeeklyList extends LitElement {
   }
 
   private handlePublish(e: CustomEvent): void {
-    this.confirmAction = { type: 'publish', weekNumber: e.detail.weekNumber };
+    const weekNumber = e.detail.weekNumber;
+    this.pushTitle = `慈濟週報 第 ${weekNumber} 期`;
+    this.pushBody = '最新一期週報已上線，立即閱讀！';
+    this.sendPushOnPublish = true;
+    this.confirmAction = { type: 'publish', weekNumber };
   }
 
   private handleUnpublish(e: CustomEvent): void {
@@ -331,6 +519,19 @@ export class PageWeeklyList extends LitElement {
         case 'publish':
           await updateWeeklyStatus(weekNumber, 'published', new Date().toISOString().split('T')[0]);
           toastStore.success('週報已發布');
+          if (this.sendPushOnPublish) {
+            try {
+              const result = await sendPushNotification({
+                title: this.pushTitle,
+                body: this.pushBody,
+                url: `/weekly/${weekNumber}`,
+              });
+              toastStore.success(`推播已發送（${result.sent} 人）`);
+            } catch (pushError) {
+              console.error('Push notification error:', pushError);
+              toastStore.error('週報已發布，但推播通知發送失敗');
+            }
+          }
           break;
         case 'unpublish':
           await updateWeeklyStatus(weekNumber, 'draft');

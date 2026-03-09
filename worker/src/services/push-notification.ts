@@ -10,14 +10,22 @@ function initFirebase() {
 
   let serviceAccount: admin.ServiceAccount;
 
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    // Cloudflare Workers: 從環境變數讀取 JSON
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } else {
-    // 本地開發: 從檔案讀取
-    const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-      || resolve(process.cwd(), 'firebase-service-account.json');
-    serviceAccount = JSON.parse(readFileSync(saPath, 'utf-8'));
+  try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } else {
+      const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+        || resolve(process.cwd(), 'firebase-service-account.json');
+      serviceAccount = JSON.parse(readFileSync(saPath, 'utf-8'));
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[Firebase] Failed to load service account:', msg);
+    throw new Error(`Firebase initialization failed: ${msg}`);
+  }
+
+  if (!serviceAccount.projectId && !(serviceAccount as any).project_id) {
+    throw new Error('Firebase service account missing project_id');
   }
 
   admin.initializeApp({
@@ -92,11 +100,14 @@ export async function sendPushNotification(options: {
 
   const response = await admin.messaging().sendEachForMulticast(message);
 
-  // 清理無效 token
+  // 記錄失敗原因並清理無效 token
   const invalidTokens: string[] = [];
   response.responses.forEach((resp, idx) => {
-    if (!resp.success && resp.error?.code === 'messaging/registration-token-not-registered') {
-      invalidTokens.push(tokens[idx]);
+    if (!resp.success) {
+      console.error(`[Push] Token ${idx} failed:`, resp.error?.code, resp.error?.message);
+      if (resp.error?.code === 'messaging/registration-token-not-registered') {
+        invalidTokens.push(tokens[idx]);
+      }
     }
   });
 
