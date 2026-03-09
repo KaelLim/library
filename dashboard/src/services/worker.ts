@@ -2,6 +2,7 @@ import type { ImportRequest, RewriteRequest, ApiError } from '../types/index.js'
 import { authStore } from '../stores/auth-store.js';
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || '/worker';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 async function fetchWorker<T>(
   endpoint: string,
@@ -9,6 +10,7 @@ async function fetchWorker<T>(
 ): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'apikey': SUPABASE_ANON_KEY,
     ...(options.headers as Record<string, string>),
   };
 

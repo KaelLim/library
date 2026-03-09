@@ -177,6 +177,26 @@ await updateFlipBookConfig(bookId, {
 });
 ```
 
+## Production Deployment Notes
+
+### Kong Port Binding
+- Kong ports 必須綁定 `0.0.0.0`（不可用 `127.0.0.1`），因為正式環境有外部 nginx 反向代理轉發流量到 Kong:8000
+- `127.0.0.1` 綁定會導致外部 502 錯誤
+
+### 正式環境部署步驟
+```bash
+# 在正式伺服器上
+cd supabase-docker
+git pull
+docker compose up -d --build worker dashboard  # 重建有更新的容器
+docker compose up -d                            # 重啟其他服務
+```
+
+### Dashboard Push Notification 路由
+- Dashboard 的 `sendPushNotification` 使用 `/api/v1/push/send`（公開路由，不走 `/worker/*` 的 key-auth）
+- Worker 的 `requireAuth` middleware 驗證 Supabase access token
+- **注意**：正式環境 worker 容器需要重新 build 才有此端點
+
 ## Dashboard Pages
 
 - `/login` - Google OAuth
