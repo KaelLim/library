@@ -131,8 +131,8 @@ export async function runSessionWithStreaming(
   let result = '';
   let accumulatedText = '';
   let streamEventCount = 0;
-  const QUERY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-  const startTime = Date.now();
+  const IDLE_TIMEOUT = 2 * 60 * 1000; // 2 minutes without any activity
+  let lastActivityTime = Date.now();
 
   try {
     console.log('[Query] Starting with prompt length:', prompt.length);
@@ -154,13 +154,14 @@ export async function runSessionWithStreaming(
         includePartialMessages: true, // 關鍵！啟用 token-level streaming
       },
     })) {
-      // Check timeout
-      if (Date.now() - startTime > QUERY_TIMEOUT) {
-        throw new Error('AI query timed out after 5 minutes');
+      // Check idle timeout (no activity for 2 minutes)
+      if (Date.now() - lastActivityTime > IDLE_TIMEOUT) {
+        throw new Error('AI query idle timeout: no response for 2 minutes');
       }
 
       // 處理 stream_event (partial messages - token level)
       const message = msg as QueryMessage;
+      lastActivityTime = Date.now();
       if (message.type === 'stream_event') {
         streamEventCount++;
         const event = (message as QueryStreamEvent).event;
