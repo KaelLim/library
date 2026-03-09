@@ -194,10 +194,11 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "curl -sSf http://localhost:3000/ || exit 1"]
+      test: ["CMD-SHELL", "curl -sSf http://127.0.0.1:3000/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 15s
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -602,7 +603,7 @@ services:
           cpus: '0.5'
           memory: 256M
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8973/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8973/"]
       interval: 10s
       timeout: 5s
       retries: 3
