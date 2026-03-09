@@ -72,8 +72,8 @@ services:
       - frontend
       - backend
     ports:
-      - 127.0.0.1:${KONG_HTTP_PORT}:8000/tcp
-      - 127.0.0.1:${KONG_HTTPS_PORT}:8443/tcp
+      - ${KONG_HTTP_PORT}:8000/tcp
+      - ${KONG_HTTPS_PORT}:8443/tcp
     volumes:
       # https://github.com/supabase/supabase/issues/12661
       - ./volumes/api/kong.yml:/home/kong/temp.yml:ro,z
