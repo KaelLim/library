@@ -19,11 +19,18 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --only=production
+# Install all dependencies (including devDependencies for build)
+RUN npm ci
 
-# Copy built files
-COPY dist ./dist
+# Copy source files
+COPY tsconfig.json ./
+COPY src ./src
+
+# Build TypeScript
+RUN npm run build
+
+# Remove devDependencies
+RUN npm prune --production
 
 # Expose port
 EXPOSE 3001
