@@ -116,17 +116,6 @@ export async function checkClaudeStatus(): Promise<ClaudeStatusResponse> {
   });
 }
 
-export interface ClaudeLoginResponse {
-  success: boolean;
-  login_url?: string;
-  message: string;
-}
-
-export async function claudeLogin(): Promise<ClaudeLoginResponse> {
-  return fetchWorker<ClaudeLoginResponse>('/claude/login', {
-    method: 'POST',
-  });
-}
 
 export interface PushNotificationRequest {
   title: string;

@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
-import { isValidDocUrl, startImport, checkClaudeStatus, claudeLogin } from '../../services/worker.js';
+import { isValidDocUrl, startImport, checkClaudeStatus } from '../../services/worker.js';
 import { getNextWeekNumber } from '../../services/weekly.js';
 import { authStore } from '../../stores/auth-store.js';
 import { toastStore } from '../../stores/toast-store.js';
@@ -54,26 +54,6 @@ export class TcImportDialog extends LitElement {
       color: var(--color-error, #dc2626);
     }
 
-    .claude-login-btn {
-      margin-left: auto;
-      padding: var(--spacing-1) var(--spacing-3);
-      background: var(--color-primary);
-      color: white;
-      border: none;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      font-size: var(--font-size-sm);
-    }
-
-    .claude-login-btn:hover {
-      opacity: 0.9;
-    }
-
-    .claude-login-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
     .footer-buttons {
       display: flex;
       gap: var(--spacing-3);
@@ -103,9 +83,6 @@ export class TcImportDialog extends LitElement {
 
   @state()
   private claudeAuthenticated: boolean | null = null; // null = checking
-
-  @state()
-  private claudeLoggingIn = false;
 
   @query('tc-dialog')
   private dialog!: HTMLElement & { close: () => void };
@@ -197,18 +174,7 @@ export class TcImportDialog extends LitElement {
     if (this.claudeAuthenticated) {
       return html`<div class="claude-status ok">Claude Code 已登入</div>`;
     }
-    return html`
-      <div class="claude-status error">
-        Claude Code 尚未登入，請先完成授權
-        <button
-          class="claude-login-btn"
-          ?disabled=${this.claudeLoggingIn}
-          @click=${this.handleClaudeLogin}
-        >
-          ${this.claudeLoggingIn ? '取得連結中...' : '登入'}
-        </button>
-      </div>
-    `;
+    return html`<div class="claude-status error">Claude Code 尚未登入，請聯繫管理員</div>`;
   }
 
   private async checkClaude(): Promise<void> {
@@ -218,25 +184,6 @@ export class TcImportDialog extends LitElement {
       this.claudeAuthenticated = status.authenticated;
     } catch {
       this.claudeAuthenticated = false;
-    }
-  }
-
-  private async handleClaudeLogin(): Promise<void> {
-    this.claudeLoggingIn = true;
-    try {
-      const result = await claudeLogin();
-      if (result.success && result.login_url) {
-        window.open(result.login_url, '_blank');
-        toastStore.success('請在新視窗中完成授權，完成後點擊重新檢查');
-        // Poll status after a delay
-        setTimeout(() => this.checkClaude(), 5000);
-      } else {
-        toastStore.error('無法取得登入連結：' + result.message);
-      }
-    } catch (error) {
-      toastStore.error('登入失敗：' + (error instanceof Error ? error.message : '未知錯誤'));
-    } finally {
-      this.claudeLoggingIn = false;
     }
   }
 

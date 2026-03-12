@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { getSupabase } from './supabase.js';
+import { updateAiActivity } from '../server.js';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // Type definitions for Claude Agent SDK query messages
@@ -136,6 +137,7 @@ export async function runSessionWithStreaming(
 
   try {
     console.log('[Query] Starting with prompt length:', prompt.length);
+    updateAiActivity();
 
     // 廣播開始
     await broadcast({
@@ -162,6 +164,7 @@ export async function runSessionWithStreaming(
       // 處理 stream_event (partial messages - token level)
       const message = msg as QueryMessage;
       lastActivityTime = Date.now();
+      updateAiActivity();
       if (message.type === 'stream_event') {
         streamEventCount++;
         const event = (message as QueryStreamEvent).event;
