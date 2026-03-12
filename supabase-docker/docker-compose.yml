@@ -627,6 +627,7 @@ services:
       SUPABASE_URL: http://kong:8000
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       BOOKS_DIR: /app/books
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
     volumes:
       - ../.claude/skills:/.claude/skills:ro
       - ../books:/app/books:ro
