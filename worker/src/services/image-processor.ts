@@ -50,21 +50,23 @@ export async function processAndUploadImages(
   weeklyId: number
 ): Promise<string> {
   const images = findBase64Images(markdown);
+  if (images.length === 0) return markdown;
+
+  // 平行壓縮 + 上傳
+  const results = await Promise.all(
+    images.map(async (image, i) => {
+      const rawBuffer = base64ToBuffer(image.base64Data);
+      const compressed = await compressImage(rawBuffer, image.mimeType);
+      const filename = `image${i + 1}.${compressed.extension}`;
+      const url = await uploadImage(weeklyId, filename, compressed.buffer, compressed.mimeType);
+      return { fullMatch: image.fullMatch, altText: image.altText, url };
+    })
+  );
+
+  // 替換 base64 為 URL
   let processedMarkdown = markdown;
-
-  for (let i = 0; i < images.length; i++) {
-    const image = images[i];
-    const rawBuffer = base64ToBuffer(image.base64Data);
-    const compressed = await compressImage(rawBuffer, image.mimeType);
-    const filename = `image${i + 1}.${compressed.extension}`;
-
-    const url = await uploadImage(weeklyId, filename, compressed.buffer, compressed.mimeType);
-
-    // 替換 base64 為 URL
-    processedMarkdown = processedMarkdown.replace(
-      image.fullMatch,
-      `![${image.altText}](${url})`
-    );
+  for (const { fullMatch, altText, url } of results) {
+    processedMarkdown = processedMarkdown.replace(fullMatch, `![${altText}](${url})`);
   }
 
   return processedMarkdown;
@@ -91,18 +93,19 @@ export async function processReferenceStyleImages(
     });
   }
 
-  // 上傳圖片並建立 URL 映射
-  const urlMap: Map<string, string> = new Map();
-  let imageIndex = 1;
+  // 平行壓縮 + 上傳，建立 URL 映射
+  const entries = Array.from(definitions.entries());
+  const results = await Promise.all(
+    entries.map(async ([refId, { mimeType, base64 }], i) => {
+      const rawBuffer = base64ToBuffer(base64);
+      const compressed = await compressImage(rawBuffer, mimeType);
+      const filename = `image${i + 1}.${compressed.extension}`;
+      const url = await uploadImage(weeklyId, filename, compressed.buffer, compressed.mimeType);
+      return { refId, url };
+    })
+  );
 
-  for (const [refId, { mimeType, base64 }] of definitions) {
-    const rawBuffer = base64ToBuffer(base64);
-    const compressed = await compressImage(rawBuffer, mimeType);
-    const filename = `image${imageIndex}.${compressed.extension}`;
-    const url = await uploadImage(weeklyId, filename, compressed.buffer, compressed.mimeType);
-    urlMap.set(refId, url);
-    imageIndex++;
-  }
+  const urlMap = new Map(results.map(({ refId, url }) => [refId, url]));
 
   // 替換 reference-style 圖片為 inline 格式
   let processedMarkdown = markdown.replace(

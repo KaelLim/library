@@ -383,6 +383,11 @@ export class PageArticleEdit extends LitElement {
   @state()
   private content = '';
 
+  @state()
+  private previewContent = '';
+
+  private previewTimer?: ReturnType<typeof setTimeout>;
+
   @query('.content-textarea')
   private textarea!: HTMLTextAreaElement;
 
@@ -411,6 +416,7 @@ export class PageArticleEdit extends LitElement {
       this.article = article;
       this.articleTitle = article.title;
       this.content = article.content;
+      this.previewContent = article.content;
     } catch (error) {
       console.error('Error loading article:', error);
       toastStore.error('載入失敗');
@@ -649,7 +655,7 @@ export class PageArticleEdit extends LitElement {
               <div class="pane-header">
                 <span class="pane-title">預覽</span>
               </div>
-              <div class="preview-content">${unsafeHTML(this.renderMarkdown(this.content))}</div>
+              <div class="preview-content">${unsafeHTML(this.renderMarkdown(this.previewContent))}</div>
             </div>
           </div>
         </div>
@@ -686,6 +692,10 @@ export class PageArticleEdit extends LitElement {
 
   private handleContentChange(e: Event): void {
     this.content = (e.target as HTMLTextAreaElement).value;
+    clearTimeout(this.previewTimer);
+    this.previewTimer = setTimeout(() => {
+      this.previewContent = this.content;
+    }, 300);
   }
 
   private handleKeyDown(e: KeyboardEvent): void {

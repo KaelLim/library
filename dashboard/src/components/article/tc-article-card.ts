@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
 import type { Article, Category } from '../../types/index.js';
+import { formatDate } from '../../utils/formatting.js';
 
 interface ArticleWithCategory extends Article {
   category?: Category;
@@ -95,15 +96,6 @@ export class TcArticleCard extends LitElement {
   @property({ type: Object }) article!: ArticleWithCategory;
   @property({ type: Boolean }) showPush = false;
 
-  private formatDate(dateString: string): string {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('zh-TW', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-  }
-
   private stripMarkdown(content: string): string {
     return content
       // Remove headers
@@ -143,7 +135,7 @@ export class TcArticleCard extends LitElement {
   render() {
     const { title, content, category, created_at } = this.article;
     const categoryName = category?.name || '';
-    const date = this.formatDate(created_at);
+    const date = formatDate(created_at);
 
     return html`
       <div class="card">

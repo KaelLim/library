@@ -147,7 +147,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     if (articlesError) throw articlesError;
 
     // Group articles by category
-    const categoryMap = new Map<number, { id: number; name: string; sort_order: number; articles: any[] }>();
+    const categoryMap = new Map<number, { id: number; name: string; sort_order: number; articles: Record<string, unknown>[] }>();
     for (const article of articles || []) {
       const cat = (article as any).category;
       const catId = article.category_id;
