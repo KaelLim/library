@@ -5,6 +5,31 @@ import { runSessionWithStreaming } from './session-streamer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const IMAGE_REGEX = /!\[[^\]]*\]\([^)]+\)/g;
+
+/**
+ * 提取 markdown 中的所有圖片語法
+ */
+function extractImages(markdown: string): string[] {
+  return markdown.match(IMAGE_REGEX) || [];
+}
+
+/**
+ * 確保原稿中的所有圖片都保留在改寫後的內容中
+ * 如果有缺漏，自動補回到內容末尾
+ */
+function ensureImagesPreserved(originalContent: string, rewrittenContent: string): string {
+  const originalImages = extractImages(originalContent);
+  if (originalImages.length === 0) return rewrittenContent;
+
+  const missingImages = originalImages.filter(img => !rewrittenContent.includes(img));
+
+  if (missingImages.length === 0) return rewrittenContent;
+
+  console.log(`[AI Rewriter] 補回 ${missingImages.length} 張遺漏圖片（原稿 ${originalImages.length} 張）`);
+  return rewrittenContent + '\n\n' + missingImages.join('\n\n');
+}
+
 interface RewrittenArticle {
   title: string;
   description: string;
@@ -72,6 +97,10 @@ ${originalContent}`;
     if (!result.title || !result.content) {
       throw new Error('AI rewrite response missing required fields: title, content');
     }
+
+    // 程式化驗證：確保原稿所有圖片都保留在改寫內容中
+    result.content = ensureImagesPreserved(originalContent, result.content);
+
     return result;
   } catch (e) {
     throw new Error(`Failed to parse AI rewrite response as JSON: ${e}`);
