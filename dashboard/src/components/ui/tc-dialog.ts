@@ -120,11 +120,11 @@ export class TcDialog extends LitElement {
   render() {
     return html`
       <div class="overlay ${this.open ? 'open' : ''}" @click=${this.handleOverlayClick}>
-        <div class="dialog" role="dialog" aria-modal="true" @click=${(e: Event) => e.stopPropagation()}>
+        <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" @click=${(e: Event) => e.stopPropagation()}>
           ${this.dialogTitle || !this.hideClose
             ? html`
                 <div class="header">
-                  <h2 class="title">${this.dialogTitle}</h2>
+                  <h2 class="title" id="dialog-title">${this.dialogTitle}</h2>
                   ${!this.hideClose
                     ? html`
                         <button class="close-btn" @click=${this.close} aria-label="關閉">

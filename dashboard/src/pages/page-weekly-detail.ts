@@ -466,7 +466,7 @@ export class PageWeeklyDetail extends LitElement {
         <!-- Page Header -->
         <div class="page-header">
           <div class="header-left">
-            <button class="back-btn" @click=${this.handleBack} title="返回">
+            <button class="back-btn" @click=${this.handleBack} title="返回" aria-label="返回">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="15 18 9 12 15 6"></polyline>
               </svg>
