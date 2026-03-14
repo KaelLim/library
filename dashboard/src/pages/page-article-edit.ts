@@ -404,7 +404,7 @@ export class PageArticleEdit extends LitElement {
 
       if (!article) {
         toastStore.error('文稿不存在');
-        Router.go(`/weekly/${this.weekNumber}`);
+        this.goBackToWeekly();
         return;
       }
 
@@ -655,6 +655,11 @@ export class PageArticleEdit extends LitElement {
     `;
   }
 
+  private goBackToWeekly(): void {
+    const query = window.location.search;
+    Router.go(`/weekly/${this.weekNumber}${query}`);
+  }
+
   private handleBreadcrumbHome(e: Event): void {
     e.preventDefault();
     Router.go('/');
@@ -662,15 +667,15 @@ export class PageArticleEdit extends LitElement {
 
   private handleBreadcrumbWeekly(e: Event): void {
     e.preventDefault();
-    Router.go(`/weekly/${this.weekNumber}`);
+    this.goBackToWeekly();
   }
 
   private handleBack(): void {
-    Router.go(`/weekly/${this.weekNumber}`);
+    this.goBackToWeekly();
   }
 
   private handleCancel(): void {
-    Router.go(`/weekly/${this.weekNumber}`);
+    this.goBackToWeekly();
   }
 
   private handleTitleChange(e: Event): void {
@@ -853,7 +858,7 @@ export class PageArticleEdit extends LitElement {
       });
 
       toastStore.success('文稿已儲存');
-      Router.go(`/weekly/${this.weekNumber}`);
+      this.goBackToWeekly();
     } catch (error) {
       console.error('Save error:', error);
       toastStore.error('儲存失敗：' + (error instanceof Error ? error.message : '未知錯誤'));

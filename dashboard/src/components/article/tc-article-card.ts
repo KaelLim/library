@@ -179,7 +179,8 @@ export class TcArticleCard extends LitElement {
   private handleEdit(e: Event): void {
     e.stopPropagation();
     const { weekly_id, id } = this.article;
-    Router.go(`/weekly/${weekly_id}/article/${id}`);
+    const query = window.location.search;
+    Router.go(`/weekly/${weekly_id}/article/${id}${query}`);
   }
 
   private handleRewrite(e: Event): void {

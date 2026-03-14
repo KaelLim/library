@@ -363,6 +363,17 @@ export class PageWeeklyDetail extends LitElement {
     super.connectedCallback();
     this.weekNumber = parseInt(this.location?.params?.id || '0', 10);
 
+    // 從 URL query params 還原狀態
+    const params = new URLSearchParams(window.location.search);
+    const qPlatform = params.get('platform');
+    const qCategory = params.get('category');
+    if (qPlatform === 'docs' || qPlatform === 'digital') {
+      this.platform = qPlatform;
+    }
+    if (qCategory) {
+      this.activeCategory = parseInt(qCategory, 10) || 0;
+    }
+
     if (this.weekNumber > 0) {
       await this.loadData();
     }
@@ -386,7 +397,8 @@ export class PageWeeklyDetail extends LitElement {
       this.weekly = weekly;
       this.categories = categories;
 
-      if (categories.length > 0) {
+      // 如果沒有從 query params 帶入 category，使用第一個分類
+      if (this.activeCategory === 0 && categories.length > 0) {
         this.activeCategory = categories[0].id;
       }
 
@@ -660,15 +672,24 @@ export class PageWeeklyDetail extends LitElement {
     Router.go('/');
   }
 
+  private updateQueryParams(): void {
+    const url = new URL(window.location.href);
+    url.searchParams.set('platform', this.platform);
+    url.searchParams.set('category', String(this.activeCategory));
+    window.history.replaceState(null, '', url.toString());
+  }
+
   private handlePlatformSelect(platform: Platform): void {
     if (this.platform !== platform) {
       this.platform = platform;
+      this.updateQueryParams();
       this.loadArticles();
     }
   }
 
   private async handleCategoryChange(e: CustomEvent): Promise<void> {
     this.activeCategory = e.detail.categoryId;
+    this.updateQueryParams();
     await this.loadArticles();
   }
 
