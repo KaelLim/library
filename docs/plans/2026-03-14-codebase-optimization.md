@@ -10,15 +10,15 @@
 - [x] Phase 1-2: XSS 修復 — markdown preview URL 白名單 + escape
 - [x] Phase 1-3: Dialog 記憶體洩漏 — 審查後確認 arrow function 無此問題，跳過
 - [x] Phase 1-4: 輸入驗證 — `parsePagination()` 安全解析 + NaN 防護
-- [ ] Phase 1-5: 背景任務失敗回報 — 需重新設計架構，延後處理
+- [x] Phase 1-5: 背景任務失敗回報 — batch 完成後寫入 audit_log（success/failed 計數）
 - [x] Phase 2-6: 圖片上傳平行化 — `Promise.all()` 壓縮+上傳
 - [x] Phase 2-7: server.ts 拆分 — 876→339 行，提取 `routes/articles.ts` + `routes/books.ts`
-- [ ] Phase 2-8: page-article-edit.ts 拆分 — 大規模重構，延後
-- [ ] Phase 2-9: Toggle/Dialog 元件重複 — 大規模重構，延後
+- [ ] Phase 2-8: page-article-edit.ts 拆分 — 改動面大，延後
+- [ ] Phase 2-9: Toggle/Dialog 元件重複 — 使用場景差異大，ROI 低，延後
 - [x] Phase 2-10: Markdown preview debounce — 300ms 延遲預覽
 - [x] Phase 2-11: `any` 型別清理 — paginate generic + categoryMap 修正
 - [x] Phase 3-12: Accessibility — back-btn aria-label, dialog aria-labelledby
-- [ ] Phase 3-13: Loading/error 狀態 — 漸進式改善
+- [ ] Phase 3-13: Loading/error 狀態 — 漸進式改善，延後
 - [x] Phase 3-14: 日期格式化統一 — `utils/formatting.ts` 共用
 - [x] Phase 3-15: CSS 硬編碼顏色 — Google 品牌色為規範要求，其餘已無問題，跳過
 

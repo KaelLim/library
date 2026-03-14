@@ -317,6 +317,15 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         console.log(`[Thumbnails] Done: ${success} success, ${failed} failed`);
+        await insertAuditLog({
+          user_email: null,
+          action: 'batch_generate_thumbnails',
+          table_name: 'books',
+          record_id: null,
+          old_data: null,
+          new_data: { total: books.length, success, failed },
+          metadata: null,
+        });
       })().catch(err => console.error('[Thumbnails] Batch failed:', err));
     } catch (error) {
       console.error('[Thumbnails] Batch failed:', error);

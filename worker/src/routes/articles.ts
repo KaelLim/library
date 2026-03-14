@@ -154,17 +154,30 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       (async () => {
+        let success = 0;
+        let failed = 0;
         for (const article of articles) {
           try {
             const categoryName = article.category?.name || '未分類';
             const description = await generateDescription(article.title, article.content, categoryName);
             await updateArticle(article.id, { description });
             console.log(`[${article.id}] Description generated: ${description.substring(0, 50)}...`);
+            success++;
           } catch (err) {
             console.error(`[${article.id}] Failed:`, err);
+            failed++;
           }
         }
-        console.log(`Batch description generation completed: ${articles.length} articles`);
+        console.log(`Batch description generation completed: ${success} success, ${failed} failed`);
+        await insertAuditLog({
+          user_email: null,
+          action: 'batch_generate_descriptions',
+          table_name: 'articles',
+          record_id: null,
+          old_data: null,
+          new_data: { total: articles.length, success, failed },
+          metadata: null,
+        });
       })().catch(err => console.error('Batch generate descriptions failed:', err));
     } catch (error) {
       console.error('Batch generate descriptions failed:', error);
