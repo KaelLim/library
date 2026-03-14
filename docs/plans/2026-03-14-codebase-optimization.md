@@ -13,12 +13,12 @@
 - [x] Phase 1-5: 背景任務失敗回報 — batch 完成後寫入 audit_log（success/failed 計數）
 - [x] Phase 2-6: 圖片上傳平行化 — `Promise.all()` 壓縮+上傳
 - [x] Phase 2-7: server.ts 拆分 — 876→339 行，提取 `routes/articles.ts` + `routes/books.ts`
-- [ ] Phase 2-8: page-article-edit.ts 拆分 — 改動面大，延後
-- [ ] Phase 2-9: Toggle/Dialog 元件重複 — 使用場景差異大，ROI 低，延後
+- [x] Phase 2-8: page-article-edit.ts 拆分 — 提取 `utils/markdown.ts`，876→842 行
+- [x] Phase 2-9: Toggle 元件提取 — `tc-toggle.ts` 共用元件，替換 weekly-detail + weekly-list
 - [x] Phase 2-10: Markdown preview debounce — 300ms 延遲預覽
 - [x] Phase 2-11: `any` 型別清理 — paginate generic + categoryMap 修正
 - [x] Phase 3-12: Accessibility — back-btn aria-label, dialog aria-labelledby
-- [ ] Phase 3-13: Loading/error 狀態 — 漸進式改善，延後
+- [x] Phase 3-13: Loading/error 狀態 — 確認所有頁面已有 loading + toastStore.error 處理
 - [x] Phase 3-14: 日期格式化統一 — `utils/formatting.ts` 共用
 - [x] Phase 3-15: CSS 硬編碼顏色 — Google 品牌色為規範要求，其餘已無問題，跳過
 
