@@ -9,7 +9,7 @@ import {
   getArticleCountsByCategory,
   type ArticleWithCategory,
 } from '../services/articles.js';
-import { rewriteArticle, sendPushNotification } from '../services/worker.js';
+import { sendPushNotification } from '../services/worker.js';
 import { authStore } from '../stores/auth-store.js';
 import { toastStore } from '../stores/toast-store.js';
 import '../components/layout/tc-app-shell.js';
@@ -345,7 +345,13 @@ export class PageWeeklyDetail extends LitElement {
   private activeCategory = 0;
 
   @state()
-  private rewritingArticle?: Article;
+  private pushingArticle?: Article;
+
+  @state()
+  private articlePushTitle = '';
+
+  @state()
+  private articlePushBody = '';
 
   @state()
   private showPublishDialog = false;
@@ -557,8 +563,8 @@ export class PageWeeklyDetail extends LitElement {
                   (article) => html`
                     <tc-article-card
                       .article=${article}
-                      ?showRewrite=${this.platform === 'digital'}
-                      @tc-article-rewrite=${this.handleArticleRewrite}
+                      ?showPush=${this.platform === 'digital'}
+                      @tc-article-push=${this.handleArticlePush}
                     ></tc-article-card>
                   `
                 )}
@@ -566,31 +572,47 @@ export class PageWeeklyDetail extends LitElement {
             `}
       </tc-app-shell>
 
-      ${this.renderRewriteConfirm()}
+      ${this.renderArticlePushDialog()}
       ${this.renderPublishConfirm()}
     `;
   }
 
-  private renderRewriteConfirm() {
-    if (!this.rewritingArticle) return '';
+  private renderArticlePushDialog() {
+    if (!this.pushingArticle) return '';
 
     return html`
       <tc-dialog
         open
-        dialogTitle="確認重新改寫"
+        dialogTitle="推播文稿通知"
         size="sm"
-        @tc-close=${this.handleRewriteCancel}
+        @tc-close=${() => (this.pushingArticle = undefined)}
       >
-        <div class="confirm-content">
-          <p>確定要重新 AI 改寫「${this.rewritingArticle.title}」嗎？</p>
-          <p>這將會覆蓋目前的數位版內容。</p>
+        <div class="push-fields">
+          <div class="field">
+            <label class="field-label">推播標題</label>
+            <input
+              type="text"
+              class="field-input"
+              .value=${this.articlePushTitle}
+              @input=${(e: Event) => (this.articlePushTitle = (e.target as HTMLInputElement).value)}
+            />
+          </div>
+          <div class="field">
+            <label class="field-label">推播內容</label>
+            <textarea
+              class="field-input field-textarea"
+              rows="3"
+              .value=${this.articlePushBody}
+              @input=${(e: Event) => (this.articlePushBody = (e.target as HTMLTextAreaElement).value)}
+            ></textarea>
+          </div>
         </div>
         <div slot="footer" class="footer-buttons">
-          <tc-button variant="secondary" @click=${this.handleRewriteCancel}>
+          <tc-button variant="secondary" @click=${() => (this.pushingArticle = undefined)}>
             取消
           </tc-button>
-          <tc-button variant="primary" @click=${this.handleRewriteConfirm}>
-            確認改寫
+          <tc-button variant="primary" @click=${this.handleArticlePushConfirm}>
+            發送推播
           </tc-button>
         </div>
       </tc-dialog>
@@ -693,29 +715,39 @@ export class PageWeeklyDetail extends LitElement {
     await this.loadArticles();
   }
 
-  
-  private handleArticleRewrite(e: CustomEvent): void {
-    this.rewritingArticle = e.detail.article;
+  private handleArticlePush(e: CustomEvent): void {
+    const article = e.detail.article as Article;
+    this.pushingArticle = article;
+    this.articlePushTitle = article.title;
+    this.articlePushBody = article.description || this.getArticlePreview(article.content);
   }
 
-  private handleRewriteCancel(): void {
-    this.rewritingArticle = undefined;
+  private getArticlePreview(content: string): string {
+    return content
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\n{2,}/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 100);
   }
 
-  private async handleRewriteConfirm(): Promise<void> {
-    if (!this.rewritingArticle) return;
+  private async handleArticlePushConfirm(): Promise<void> {
+    if (!this.pushingArticle) return;
 
     try {
-      await rewriteArticle({
-        article_id: this.rewritingArticle.id,
-        user_email: authStore.userEmail || 'unknown',
+      const result = await sendPushNotification({
+        title: this.articlePushTitle,
+        body: this.articlePushBody,
+        url: `/article/${this.pushingArticle.id}`,
       });
-
-      toastStore.success('AI 改寫已開始');
-      this.rewritingArticle = undefined;
+      toastStore.success(`推播已發送（${result.sent} 人）`);
+      this.pushingArticle = undefined;
     } catch (error) {
-      console.error('Rewrite error:', error);
-      toastStore.error('改寫失敗：' + (error instanceof Error ? error.message : '未知錯誤'));
+      console.error('Push error:', error);
+      toastStore.error('推播發送失敗：' + (error instanceof Error ? error.message : '未知錯誤'));
     }
   }
 

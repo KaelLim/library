@@ -93,7 +93,7 @@ export class TcArticleCard extends LitElement {
   `;
 
   @property({ type: Object }) article!: ArticleWithCategory;
-  @property({ type: Boolean }) showRewrite = false;
+  @property({ type: Boolean }) showPush = false;
 
   private formatDate(dateString: string): string {
     const date = new Date(dateString);
@@ -159,13 +159,13 @@ export class TcArticleCard extends LitElement {
               </svg>
               編輯
             </button>
-            ${this.showRewrite
+            ${this.showPush
               ? html`
-                  <button class="action-btn" @click=${this.handleRewrite}>
+                  <button class="action-btn" @click=${this.handlePush}>
                     <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M7.5 5.6L10 7 8.6 4.5 10 2 7.5 3.4 5 2l1.4 2.5L5 7zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-7.63 5.29c-.39-.39-1.02-.39-1.41 0L1.29 18.96c-.39.39-.39 1.02 0 1.41l2.34 2.34c.39.39 1.02.39 1.41 0L16.7 11.05c.39-.39.39-1.02 0-1.41l-2.33-2.35zm-1.03 5.49l-2.12-2.12 2.44-2.44 2.12 2.12-2.44 2.44z"/>
+                      <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
                     </svg>
-                    重新改寫
+                    推播
                   </button>
                 `
               : ''}
@@ -183,10 +183,10 @@ export class TcArticleCard extends LitElement {
     Router.go(`/weekly/${weekly_id}/article/${id}${query}`);
   }
 
-  private handleRewrite(e: Event): void {
+  private handlePush(e: Event): void {
     e.stopPropagation();
     this.dispatchEvent(
-      new CustomEvent('tc-article-rewrite', {
+      new CustomEvent('tc-article-push', {
         detail: { article: this.article },
         bubbles: true,
         composed: true,
