@@ -6,6 +6,11 @@
 
 - [x] AI 改寫圖片驗證 — `ensureImagesPreserved()` 程式化補回遺漏圖片
 - [x] 圖片自動壓縮 — `sharp` resize ≤1920px + JPG 品質 80%
+- [x] Phase 1-1: requireAuth middleware 提取至 `middleware/auth.ts`
+- [x] Phase 1-2: XSS 修復 — markdown preview URL 白名單 + escape
+- [x] Phase 1-3: Dialog 記憶體洩漏 — 審查後確認 arrow function 無此問題，跳過
+- [x] Phase 1-4: 輸入驗證 — `parsePagination()` 安全解析 + NaN 防護
+- [ ] Phase 1-5: 背景任務失敗回報 — 需重新設計架構，延後處理
 
 ---
 

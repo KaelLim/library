@@ -1,40 +1,22 @@
-import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyPluginAsync } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { getSupabase } from '../services/supabase.js';
 import { subscribeToken, unsubscribeToken, sendPushNotification } from '../services/push-notification.js';
-
-async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
-  const authHeader = request.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' });
-  }
-
-  const token = authHeader.slice(7);
-  const supabase = getSupabase();
-
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) {
-    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
-  }
-
-  const { data: allowed } = await supabase
-    .from('allowed_users')
-    .select('is_active')
-    .eq('email', user.email)
-    .single();
-
-  if (!allowed?.is_active) {
-    return reply.status(403).send({ error: 'FORBIDDEN', message: 'User not authorized' });
-  }
-}
+import { requireAuth } from '../middleware/auth.js';
 
 const paginationQueryProps = {
   limit: { type: 'string', description: '每頁筆數 (max 100, default 20)' },
   offset: { type: 'string', description: '起始位置 (default 0)' },
 };
 
-function paginate(data: any[], total: number, limit: number, offset: number) {
+function parsePagination(limitStr?: string, offsetStr?: string, defaults = { limit: 20, max: 100 }) {
+  const limit = Math.min(Math.max(parseInt(limitStr || String(defaults.limit), 10) || defaults.limit, 1), defaults.max);
+  const offset = Math.max(parseInt(offsetStr || '0', 10) || 0, 0);
+  return { limit, offset };
+}
+
+function paginate<T>(data: T[], total: number, limit: number, offset: number) {
   const page = Math.floor(offset / limit) + 1;
   const page_count = Math.ceil(total / limit) || 1;
   return { total, page, page_count, limit, offset, data };
@@ -87,8 +69,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request) => {
     const { status, limit: limitStr, offset: offsetStr } = request.query;
-    const limit = Math.min(parseInt(limitStr || '20', 10), 100);
-    const offset = parseInt(offsetStr || '0', 10);
+    const { limit, offset } = parsePagination(limitStr, offsetStr);
 
     let query = getSupabase()
       .from('weekly')
@@ -210,8 +191,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request) => {
     const { limit: limitStr, offset: offsetStr } = request.query;
-    const limit = Math.min(parseInt(limitStr || '6', 10), 20);
-    const offset = parseInt(offsetStr || '0', 10);
+    const { limit, offset } = parsePagination(limitStr, offsetStr, { limit: 6, max: 20 });
 
     // 1. 取得週報列表
     const { data: weeklyList, count, error: weeklyError } = await getSupabase()
@@ -299,8 +279,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request) => {
     const { weekly_id, platform, category_id, limit: limitStr, offset: offsetStr } = request.query;
-    const limit = Math.min(parseInt(limitStr || '20', 10), 100);
-    const offset = parseInt(offsetStr || '0', 10);
+    const { limit, offset } = parsePagination(limitStr, offsetStr);
 
     let query = getSupabase()
       .from('articles')
@@ -391,8 +370,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request) => {
     const { category_id, limit: limitStr, offset: offsetStr } = request.query;
-    const limit = Math.min(parseInt(limitStr || '20', 10), 100);
-    const offset = parseInt(offsetStr || '0', 10);
+    const { limit, offset } = parsePagination(limitStr, offsetStr);
 
     let query = getSupabase()
       .from('books')

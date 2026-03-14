@@ -437,11 +437,13 @@ export class PageArticleEdit extends LitElement {
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<figure class="image-block"><img src="$2" alt="$1"><figcaption>$1</figcaption></figure>')
       // Links
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, text: string, url: string) => {
-        // Block javascript:, data:, and vbscript: protocols
-        if (/^(javascript|data|vbscript):/i.test(url.trim())) {
+        const trimmed = url.trim();
+        // 白名單：只允許 http, https, 或相對路徑
+        if (!/^(https?:\/\/|\/)/i.test(trimmed)) {
           return text;
         }
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+        const safeUrl = trimmed.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${text}</a>`;
       })
       // Code blocks
       .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')

@@ -10,7 +10,6 @@ import { runImportWorker } from './worker.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { buildExportUrl } from './services/google-docs.js';
 import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
-import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
   initSupabase,
   getSupabase,
@@ -35,35 +34,10 @@ import {
 } from './services/supabase.js';
 import { compressPdf, extractPdfThumbnail, isGhostscriptAvailable } from './services/pdf-compressor.js';
 import { apiV1Routes } from './routes/api-v1.js';
+import { requireAuth } from './middleware/auth.js';
 
 // Initialize Supabase
 initSupabase();
-
-// Auth middleware: validates Bearer token and checks allowed_users
-async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
-  const authHeader = request.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' });
-  }
-
-  const token = authHeader.slice(7);
-  const supabase = getSupabase();
-
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) {
-    return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
-  }
-
-  const { data: allowed } = await supabase
-    .from('allowed_users')
-    .select('is_active')
-    .eq('email', user.email)
-    .single();
-
-  if (!allowed?.is_active) {
-    return reply.status(403).send({ error: 'FORBIDDEN', message: 'User not authorized' });
-  }
-}
 
 const fastify = Fastify({
   logger: true,
