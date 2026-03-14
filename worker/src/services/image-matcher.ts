@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { downloadFile, listImagesRecursive, type DriveFile } from './google-drive.js';
 import { getSupabase, uploadImage } from './supabase.js';
+import { compressImage } from './image-compressor.js';
 
 interface MatchResult {
   storage_filename: string;
@@ -183,11 +184,12 @@ Rules:
       }
 
       onProgress?.(`替換 ${mapping.storage_filename} → ${mapping.drive_file_name}`);
+      const compressed = await compressImage(driveImage.buffer, driveImage.file.mimeType);
       await uploadImage(
         weeklyId,
         mapping.storage_filename,
-        driveImage.buffer,
-        driveImage.file.mimeType
+        compressed.buffer,
+        compressed.mimeType
       );
       replaced++;
     }

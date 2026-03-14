@@ -1,4 +1,5 @@
 import { uploadImage } from './supabase.js';
+import { compressImage } from './image-compressor.js';
 
 interface ImageMatch {
   fullMatch: string;
@@ -53,11 +54,11 @@ export async function processAndUploadImages(
 
   for (let i = 0; i < images.length; i++) {
     const image = images[i];
-    const ext = getMimeExtension(image.mimeType);
-    const filename = `image${i + 1}.${ext}`;
+    const rawBuffer = base64ToBuffer(image.base64Data);
+    const compressed = await compressImage(rawBuffer, image.mimeType);
+    const filename = `image${i + 1}.${compressed.extension}`;
 
-    const buffer = base64ToBuffer(image.base64Data);
-    const url = await uploadImage(weeklyId, filename, buffer, image.mimeType);
+    const url = await uploadImage(weeklyId, filename, compressed.buffer, compressed.mimeType);
 
     // 替換 base64 為 URL
     processedMarkdown = processedMarkdown.replace(
@@ -95,10 +96,10 @@ export async function processReferenceStyleImages(
   let imageIndex = 1;
 
   for (const [refId, { mimeType, base64 }] of definitions) {
-    const ext = getMimeExtension(mimeType);
-    const filename = `image${imageIndex}.${ext}`;
-    const buffer = base64ToBuffer(base64);
-    const url = await uploadImage(weeklyId, filename, buffer, mimeType);
+    const rawBuffer = base64ToBuffer(base64);
+    const compressed = await compressImage(rawBuffer, mimeType);
+    const filename = `image${imageIndex}.${compressed.extension}`;
+    const url = await uploadImage(weeklyId, filename, compressed.buffer, compressed.mimeType);
     urlMap.set(refId, url);
     imageIndex++;
   }
