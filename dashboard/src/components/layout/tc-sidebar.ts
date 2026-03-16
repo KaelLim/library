@@ -44,15 +44,9 @@ export class TcSidebar extends LitElement {
       height: 32px;
       min-width: 32px;
       min-height: 32px;
-      background: var(--color-accent);
       border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-weight: 700;
-      font-size: 12px;
       flex-shrink: 0;
+      object-fit: contain;
     }
 
     .title {
@@ -169,7 +163,7 @@ export class TcSidebar extends LitElement {
       <aside class="sidebar">
         <div class="main">
           <div class="header">
-            <div class="logo">TZ</div>
+            <img class="logo" src="/favicon.png" alt="慈濟" />
             <span class="title">週報管理系統</span>
           </div>
 
