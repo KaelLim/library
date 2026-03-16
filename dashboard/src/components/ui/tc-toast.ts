@@ -82,6 +82,10 @@ export class TcToast extends LitElement {
       justify-content: center;
       width: 20px;
       height: 20px;
+      background: transparent;
+      border: none;
+      padding: 0;
+      cursor: pointer;
       color: var(--color-text-muted);
       border-radius: var(--radius-sm);
       transition: all var(--transition-fast);
