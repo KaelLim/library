@@ -6,6 +6,7 @@ export class TcDatepicker extends LitElement {
   static styles = css`
     :host {
       display: block;
+      position: relative;
     }
 
     .label {
@@ -16,11 +17,56 @@ export class TcDatepicker extends LitElement {
       margin-bottom: var(--spacing-2);
     }
 
-    .calendar {
-      background: var(--color-bg-surface);
+    .trigger {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-2);
+      width: 100%;
+      padding: var(--spacing-2) var(--spacing-3);
+      font-size: var(--font-size-sm);
+      font-family: inherit;
+      background: var(--color-bg-card);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-md);
+      color: var(--color-text-primary);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      box-sizing: border-box;
+    }
+
+    .trigger:hover {
+      border-color: var(--color-border-hover);
+    }
+
+    .trigger.open {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-light);
+    }
+
+    .trigger svg {
+      width: 16px;
+      height: 16px;
+      color: var(--color-text-muted);
+      flex-shrink: 0;
+    }
+
+    .trigger-text {
+      flex: 1;
+      text-align: left;
+    }
+
+    .dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: var(--spacing-1);
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      z-index: var(--z-dropdown);
       padding: var(--spacing-3);
+      min-width: 280px;
     }
 
     .header {
@@ -152,8 +198,11 @@ export class TcDatepicker extends LitElement {
   @property({ type: String }) label = '';
   @property({ type: String }) value = '';
 
+  @state() private open = false;
   @state() private viewYear = 0;
   @state() private viewMonth = 0;
+
+  private boundClose = this.handleOutsideClick.bind(this);
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -166,10 +215,34 @@ export class TcDatepicker extends LitElement {
     }
   }
 
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    document.removeEventListener('click', this.boundClose);
+  }
+
   private syncView(): void {
     const d = this.value ? new Date(this.value + 'T00:00:00') : new Date();
     this.viewYear = d.getFullYear();
     this.viewMonth = d.getMonth();
+  }
+
+  private toggle(e: Event): void {
+    e.stopPropagation();
+    this.open = !this.open;
+    if (this.open) {
+      this.syncView();
+      document.addEventListener('click', this.boundClose);
+    } else {
+      document.removeEventListener('click', this.boundClose);
+    }
+  }
+
+  private handleOutsideClick(e: Event): void {
+    const path = e.composedPath();
+    if (!path.includes(this)) {
+      this.open = false;
+      document.removeEventListener('click', this.boundClose);
+    }
   }
 
   private prevMonth(): void {
@@ -194,6 +267,8 @@ export class TcDatepicker extends LitElement {
     const m = String(month + 1).padStart(2, '0');
     const d = String(day).padStart(2, '0');
     this.value = `${year}-${m}-${d}`;
+    this.open = false;
+    document.removeEventListener('click', this.boundClose);
     this.dispatchEvent(
       new CustomEvent('tc-change', {
         detail: { value: this.value },
@@ -206,6 +281,12 @@ export class TcDatepicker extends LitElement {
   private goToday(): void {
     const now = new Date();
     this.selectDate(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  private formatDisplay(value: string): string {
+    if (!value) return '選擇日期';
+    const d = new Date(value + 'T00:00:00');
+    return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`;
   }
 
   private getDays(): Array<{ day: number; month: number; year: number; isCurrentMonth: boolean; isToday: boolean; isSelected: boolean }> {
@@ -249,40 +330,55 @@ export class TcDatepicker extends LitElement {
   render() {
     return html`
       ${this.label ? html`<span class="label">${this.label}</span>` : ''}
-      <div class="calendar">
-        <div class="header">
-          <span class="month-label">${this.viewYear} 年 ${this.monthNames[this.viewMonth]}</span>
-          <div class="nav-buttons">
-            <button class="nav-btn" @click=${this.prevMonth}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="15 18 9 12 15 6"></polyline>
-              </svg>
-            </button>
-            <button class="nav-btn" @click=${this.nextMonth}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9 18 15 12 9 6"></polyline>
-              </svg>
-            </button>
+      <button
+        class="trigger ${this.open ? 'open' : ''}"
+        @click=${this.toggle}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+        <span class="trigger-text">${this.formatDisplay(this.value)}</span>
+      </button>
+
+      ${this.open ? html`
+        <div class="dropdown" @click=${(e: Event) => e.stopPropagation()}>
+          <div class="header">
+            <span class="month-label">${this.viewYear} 年 ${this.monthNames[this.viewMonth]}</span>
+            <div class="nav-buttons">
+              <button class="nav-btn" @click=${this.prevMonth}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+              </button>
+              <button class="nav-btn" @click=${this.nextMonth}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="weekdays">
+            ${['日', '一', '二', '三', '四', '五', '六'].map(d => html`<span class="weekday">${d}</span>`)}
+          </div>
+
+          <div class="days">
+            ${this.getDays().map(d => html`
+              <button
+                class="day ${d.isCurrentMonth ? '' : 'other-month'} ${d.isToday ? 'today' : ''} ${d.isSelected ? 'selected' : ''}"
+                @click=${() => this.selectDate(d.year, d.month, d.day)}
+              >${d.day}</button>
+            `)}
+          </div>
+
+          <div class="footer">
+            <button class="today-btn" @click=${this.goToday}>今天</button>
           </div>
         </div>
-
-        <div class="weekdays">
-          ${['日', '一', '二', '三', '四', '五', '六'].map(d => html`<span class="weekday">${d}</span>`)}
-        </div>
-
-        <div class="days">
-          ${this.getDays().map(d => html`
-            <button
-              class="day ${d.isCurrentMonth ? '' : 'other-month'} ${d.isToday ? 'today' : ''} ${d.isSelected ? 'selected' : ''}"
-              @click=${() => this.selectDate(d.year, d.month, d.day)}
-            >${d.day}</button>
-          `)}
-        </div>
-
-        <div class="footer">
-          <button class="today-btn" @click=${this.goToday}>今天</button>
-        </div>
-      </div>
+      ` : ''}
     `;
   }
 }
