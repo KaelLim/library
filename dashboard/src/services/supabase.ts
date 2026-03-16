@@ -8,6 +8,7 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKe
     autoRefreshToken: false, // 手動控制 refresh，避免背景 tab timer 凍結導致 client 卡死
     persistSession: true,
     detectSessionInUrl: true,
+    storage: sessionStorage, // 關閉 tab 即清除 session，重開需重新登入取得 Drive token
   },
 });
 
