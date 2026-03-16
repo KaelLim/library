@@ -352,7 +352,7 @@ export async function deleteBook(bookId: number): Promise<void> {
 export async function uploadBookPdf(
   pdfBuffer: Buffer,
   originalFilename?: string
-): Promise<{ path: string; publicUrl: string }> {
+): Promise<{ path: string; publicUrl: string; uuid: string }> {
   const uuid = randomUUID();
   const path = `books/${uuid}.pdf`;
 
@@ -374,6 +374,7 @@ export async function uploadBookPdf(
   return {
     path,
     publicUrl: data.publicUrl,
+    uuid,
   };
 }
 

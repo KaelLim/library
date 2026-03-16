@@ -21,8 +21,7 @@ CREATE TABLE IF NOT EXISTS public.books (
   category_id BIGINT REFERENCES public.books_category(id) ON DELETE SET NULL,
 
   -- 識別
-  book_url TEXT,                      -- FlipHTML5 連結
-  book_id UUID DEFAULT gen_random_uuid(),  -- UUID 識別碼
+  book_id UUID DEFAULT gen_random_uuid(),  -- UUID 識別碼（與 pdf_path 的 UUID 一致）
 
   -- 書籍資訊
   title TEXT NOT NULL,

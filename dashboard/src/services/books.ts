@@ -10,8 +10,7 @@ export interface BookCategory {
 export interface Book {
   id: number;
   category_id: number | null;
-  book_url: string | null;
-  book_id: string | null;  // UUID
+  book_id: string | null;  // UUID（與 pdf_path 的 UUID 一致）
   title: string;
   introtext: string | null;
   catalogue: string | null;

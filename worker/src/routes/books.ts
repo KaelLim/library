@@ -154,7 +154,7 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
       // 3. 寫入資料庫
       const book = await insertBook({
         category_id: categoryId || null,
-        book_url: fields.book_url || null,
+        book_id: storageResult.uuid,
         title,
         introtext: fields.introtext || fields.description || null,
         catalogue: fields.catalogue || null,
@@ -194,8 +194,8 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
         message: '電子書創建成功',
         book: {
           id: book.id,
+          book_id: book.book_id,
           title: book.title,
-          book_url: book.book_url,
           thumbnail_url: book.thumbnail_url,
           pdf_path: book.pdf_path,
         },

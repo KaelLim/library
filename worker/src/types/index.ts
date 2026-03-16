@@ -77,8 +77,7 @@ export interface Book {
   category_id: number | null;
 
   // 識別
-  book_url: string | null;
-  book_id: string | null;  // UUID
+  book_id: string | null;  // UUID（與 pdf_path 的 UUID 一致）
 
   // 書籍資訊
   title: string;
@@ -112,8 +111,7 @@ export interface Book {
   updated_at: string;
 }
 
-export type BookInsert = Omit<Book, 'id' | 'book_id' | 'created_at' | 'updated_at' | 'hits'> & {
-  book_id?: string;
+export type BookInsert = Omit<Book, 'id' | 'created_at' | 'updated_at' | 'hits'> & {
   hits?: number;
 };
 
