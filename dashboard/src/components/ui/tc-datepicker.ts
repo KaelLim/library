@@ -1,12 +1,133 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { customElement, property, state, query } from 'lit/decorators.js';
+
+const DROPDOWN_STYLES = `
+  .tc-datepicker-dropdown {
+    position: fixed;
+    background: #1A1A1A;
+    border: 1px solid #2A2A2A;
+    border-radius: 12px;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5), 0 4px 6px -4px rgba(0,0,0,0.4);
+    padding: 12px;
+    min-width: 280px;
+    z-index: 9999;
+    font-family: 'Noto Sans TC', 'Inter', -apple-system, sans-serif;
+  }
+  .tc-datepicker-dropdown .dp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .tc-datepicker-dropdown .dp-month-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .tc-datepicker-dropdown .dp-nav-buttons {
+    display: flex;
+    gap: 4px;
+  }
+  .tc-datepicker-dropdown .dp-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: 1px solid #2A2A2A;
+    border-radius: 4px;
+    color: #A0A0A0;
+    cursor: pointer;
+    transition: all 150ms ease;
+    padding: 0;
+  }
+  .tc-datepicker-dropdown .dp-nav-btn:hover {
+    background: #242424;
+    color: #fff;
+  }
+  .tc-datepicker-dropdown .dp-nav-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .tc-datepicker-dropdown .dp-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    margin-bottom: 4px;
+  }
+  .tc-datepicker-dropdown .dp-weekday {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    padding: 4px 0;
+  }
+  .tc-datepicker-dropdown .dp-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+  }
+  .tc-datepicker-dropdown .dp-day {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+    font-family: inherit;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 150ms ease;
+    background: transparent;
+    color: #fff;
+    padding: 0;
+    margin: 0 auto;
+  }
+  .tc-datepicker-dropdown .dp-day:hover:not(.dp-selected) {
+    background: #242424;
+  }
+  .tc-datepicker-dropdown .dp-day.dp-other-month {
+    color: #666;
+  }
+  .tc-datepicker-dropdown .dp-day.dp-today:not(.dp-selected) {
+    border: 1px solid #3B82F6;
+    color: #3B82F6;
+  }
+  .tc-datepicker-dropdown .dp-day.dp-selected {
+    background: #3B82F6;
+    color: #fff;
+    font-weight: 600;
+  }
+  .tc-datepicker-dropdown .dp-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #2A2A2A;
+  }
+  .tc-datepicker-dropdown .dp-today-btn {
+    font-size: 12px;
+    font-family: inherit;
+    color: #3B82F6;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 150ms ease;
+  }
+  .tc-datepicker-dropdown .dp-today-btn:hover {
+    background: rgba(59, 130, 246, 0.1);
+  }
+`;
 
 @customElement('tc-datepicker')
 export class TcDatepicker extends LitElement {
   static styles = css`
     :host {
       display: block;
-      position: relative;
     }
 
     .label {
@@ -54,170 +175,29 @@ export class TcDatepicker extends LitElement {
       flex: 1;
       text-align: left;
     }
-
-    .dropdown {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      margin-top: var(--spacing-1);
-      background: var(--color-bg-card);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-lg);
-      z-index: var(--z-dropdown);
-      padding: var(--spacing-3);
-      min-width: 280px;
-    }
-
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: var(--spacing-3);
-    }
-
-    .month-label {
-      font-size: var(--font-size-sm);
-      font-weight: var(--font-weight-semibold);
-      color: var(--color-text-primary);
-    }
-
-    .nav-buttons {
-      display: flex;
-      gap: var(--spacing-1);
-    }
-
-    .nav-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      background: transparent;
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-sm);
-      color: var(--color-text-secondary);
-      cursor: pointer;
-      transition: all var(--transition-fast);
-      padding: 0;
-    }
-
-    .nav-btn:hover {
-      background: var(--color-bg-hover);
-      color: var(--color-text-primary);
-    }
-
-    .nav-btn svg {
-      width: 14px;
-      height: 14px;
-    }
-
-    .weekdays {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 2px;
-      margin-bottom: var(--spacing-1);
-    }
-
-    .weekday {
-      text-align: center;
-      font-size: var(--font-size-xs);
-      font-weight: var(--font-weight-medium);
-      color: var(--color-text-muted);
-      padding: var(--spacing-1) 0;
-    }
-
-    .days {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 2px;
-    }
-
-    .day {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 36px;
-      height: 36px;
-      font-size: var(--font-size-sm);
-      font-family: inherit;
-      border: none;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: all var(--transition-fast);
-      background: transparent;
-      color: var(--color-text-primary);
-      padding: 0;
-      margin: 0 auto;
-    }
-
-    .day:hover:not(.selected) {
-      background: var(--color-bg-hover);
-    }
-
-    .day.other-month {
-      color: var(--color-text-muted);
-    }
-
-    .day.today:not(.selected) {
-      border: 1px solid var(--color-accent);
-      color: var(--color-accent);
-    }
-
-    .day.selected {
-      background: var(--color-accent);
-      color: #fff;
-      font-weight: var(--font-weight-semibold);
-    }
-
-    .footer {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: var(--spacing-2);
-      padding-top: var(--spacing-2);
-      border-top: 1px solid var(--color-border);
-    }
-
-    .today-btn {
-      font-size: var(--font-size-xs);
-      font-family: inherit;
-      color: var(--color-accent);
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      padding: var(--spacing-1) var(--spacing-2);
-      border-radius: var(--radius-sm);
-      transition: all var(--transition-fast);
-    }
-
-    .today-btn:hover {
-      background: var(--color-accent-light);
-    }
   `;
 
   @property({ type: String }) label = '';
   @property({ type: String }) value = '';
 
   @state() private open = false;
-  @state() private viewYear = 0;
-  @state() private viewMonth = 0;
+  private viewYear = 0;
+  private viewMonth = 0;
 
+  private dropdownEl: HTMLDivElement | null = null;
+  private styleEl: HTMLStyleElement | null = null;
   private boundClose = this.handleOutsideClick.bind(this);
+
+  @query('.trigger') private triggerEl!: HTMLButtonElement;
 
   connectedCallback(): void {
     super.connectedCallback();
     this.syncView();
   }
 
-  updated(changed: Map<string, unknown>): void {
-    if (changed.has('value') && this.value) {
-      this.syncView();
-    }
-  }
-
   disconnectedCallback(): void {
     super.disconnectedCallback();
-    document.removeEventListener('click', this.boundClose);
+    this.removeDropdown();
   }
 
   private syncView(): void {
@@ -228,21 +208,56 @@ export class TcDatepicker extends LitElement {
 
   private toggle(e: Event): void {
     e.stopPropagation();
-    this.open = !this.open;
     if (this.open) {
-      this.syncView();
-      document.addEventListener('click', this.boundClose);
+      this.removeDropdown();
     } else {
-      document.removeEventListener('click', this.boundClose);
+      this.syncView();
+      this.showDropdown();
     }
   }
 
   private handleOutsideClick(e: Event): void {
-    const path = e.composedPath();
-    if (!path.includes(this)) {
-      this.open = false;
-      document.removeEventListener('click', this.boundClose);
+    if (this.dropdownEl?.contains(e.target as Node)) return;
+    if (e.composedPath().includes(this)) return;
+    this.removeDropdown();
+  }
+
+  private showDropdown(): void {
+    this.open = true;
+
+    // Inject global styles once
+    if (!document.getElementById('tc-datepicker-styles')) {
+      this.styleEl = document.createElement('style');
+      this.styleEl.id = 'tc-datepicker-styles';
+      this.styleEl.textContent = DROPDOWN_STYLES;
+      document.head.appendChild(this.styleEl);
     }
+
+    this.dropdownEl = document.createElement('div');
+    this.dropdownEl.className = 'tc-datepicker-dropdown';
+    this.dropdownEl.addEventListener('click', (e) => e.stopPropagation());
+    document.body.appendChild(this.dropdownEl);
+
+    this.positionDropdown();
+    this.renderDropdown();
+
+    setTimeout(() => document.addEventListener('click', this.boundClose), 0);
+  }
+
+  private removeDropdown(): void {
+    this.open = false;
+    document.removeEventListener('click', this.boundClose);
+    if (this.dropdownEl) {
+      this.dropdownEl.remove();
+      this.dropdownEl = null;
+    }
+  }
+
+  private positionDropdown(): void {
+    if (!this.dropdownEl || !this.triggerEl) return;
+    const rect = this.triggerEl.getBoundingClientRect();
+    this.dropdownEl.style.top = `${rect.bottom + 4}px`;
+    this.dropdownEl.style.left = `${rect.left}px`;
   }
 
   private prevMonth(): void {
@@ -252,6 +267,7 @@ export class TcDatepicker extends LitElement {
     } else {
       this.viewMonth--;
     }
+    this.renderDropdown();
   }
 
   private nextMonth(): void {
@@ -261,14 +277,14 @@ export class TcDatepicker extends LitElement {
     } else {
       this.viewMonth++;
     }
+    this.renderDropdown();
   }
 
   private selectDate(year: number, month: number, day: number): void {
     const m = String(month + 1).padStart(2, '0');
     const d = String(day).padStart(2, '0');
     this.value = `${year}-${m}-${d}`;
-    this.open = false;
-    document.removeEventListener('click', this.boundClose);
+    this.removeDropdown();
     this.dispatchEvent(
       new CustomEvent('tc-change', {
         detail: { value: this.value },
@@ -326,6 +342,64 @@ export class TcDatepicker extends LitElement {
   }
 
   private monthNames = ['1 月', '2 月', '3 月', '4 月', '5 月', '6 月', '7 月', '8 月', '9 月', '10 月', '11 月', '12 月'];
+  private weekdayNames = ['日', '一', '二', '三', '四', '五', '六'];
+
+  private renderDropdown(): void {
+    if (!this.dropdownEl) return;
+
+    const days = this.getDays();
+
+    this.dropdownEl.innerHTML = `
+      <div class="dp-header">
+        <span class="dp-month-label">${this.viewYear} 年 ${this.monthNames[this.viewMonth]}</span>
+        <div class="dp-nav-buttons">
+          <button class="dp-nav-btn" data-action="prev">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <button class="dp-nav-btn" data-action="next">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="dp-weekdays">
+        ${this.weekdayNames.map(d => `<span class="dp-weekday">${d}</span>`).join('')}
+      </div>
+      <div class="dp-days">
+        ${days.map(d => {
+          const cls = ['dp-day'];
+          if (!d.isCurrentMonth) cls.push('dp-other-month');
+          if (d.isToday) cls.push('dp-today');
+          if (d.isSelected) cls.push('dp-selected');
+          return `<button class="${cls.join(' ')}" data-year="${d.year}" data-month="${d.month}" data-day="${d.day}">${d.day}</button>`;
+        }).join('')}
+      </div>
+      <div class="dp-footer">
+        <button class="dp-today-btn" data-action="today">今天</button>
+      </div>
+    `;
+
+    // Event delegation
+    this.dropdownEl.onclick = (e) => {
+      e.stopPropagation();
+      const target = e.target as HTMLElement;
+      const btn = target.closest('button') as HTMLElement | null;
+      if (!btn) return;
+
+      const action = btn.dataset.action;
+      if (action === 'prev') { this.prevMonth(); return; }
+      if (action === 'next') { this.nextMonth(); return; }
+      if (action === 'today') { this.goToday(); return; }
+
+      const { year, month, day } = btn.dataset;
+      if (year && month && day) {
+        this.selectDate(Number(year), Number(month), Number(day));
+      }
+    };
+  }
 
   render() {
     return html`
@@ -342,43 +416,6 @@ export class TcDatepicker extends LitElement {
         </svg>
         <span class="trigger-text">${this.formatDisplay(this.value)}</span>
       </button>
-
-      ${this.open ? html`
-        <div class="dropdown" @click=${(e: Event) => e.stopPropagation()}>
-          <div class="header">
-            <span class="month-label">${this.viewYear} 年 ${this.monthNames[this.viewMonth]}</span>
-            <div class="nav-buttons">
-              <button class="nav-btn" @click=${this.prevMonth}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="15 18 9 12 15 6"></polyline>
-                </svg>
-              </button>
-              <button class="nav-btn" @click=${this.nextMonth}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div class="weekdays">
-            ${['日', '一', '二', '三', '四', '五', '六'].map(d => html`<span class="weekday">${d}</span>`)}
-          </div>
-
-          <div class="days">
-            ${this.getDays().map(d => html`
-              <button
-                class="day ${d.isCurrentMonth ? '' : 'other-month'} ${d.isToday ? 'today' : ''} ${d.isSelected ? 'selected' : ''}"
-                @click=${() => this.selectDate(d.year, d.month, d.day)}
-              >${d.day}</button>
-            `)}
-          </div>
-
-          <div class="footer">
-            <button class="today-btn" @click=${this.goToday}>今天</button>
-          </div>
-        </div>
-      ` : ''}
     `;
   }
 }

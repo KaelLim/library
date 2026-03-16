@@ -67,8 +67,12 @@ export class TcDialog extends LitElement {
       justify-content: center;
       width: 32px;
       height: 32px;
+      background: transparent;
+      border: none;
       border-radius: var(--radius-md);
       color: var(--color-text-muted);
+      cursor: pointer;
+      padding: 0;
       transition: all var(--transition-fast);
     }
 
