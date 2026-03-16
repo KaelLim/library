@@ -20,6 +20,7 @@ import '../components/ui/tc-dialog.js';
 import '../components/article/tc-category-tabs.js';
 import '../components/article/tc-article-card.js';
 import '../components/ui/tc-toggle.js';
+import '../components/ui/tc-datepicker.js';
 
 interface RouteLocation {
   params: { id: string };
@@ -586,15 +587,11 @@ export class PageWeeklyDetail extends LitElement {
         <div class="publish-confirm-content">
           <p>確定要發布第 ${this.weekNumber} 期週報嗎？</p>
 
-          <div class="field">
-            <label class="field-label">發布日期</label>
-            <input
-              type="date"
-              class="field-input"
-              .value=${this.publishDate}
-              @input=${(e: Event) => (this.publishDate = (e.target as HTMLInputElement).value)}
-            />
-          </div>
+          <tc-datepicker
+            label="發布日期"
+            .value=${this.publishDate}
+            @tc-change=${(e: CustomEvent) => (this.publishDate = e.detail.value)}
+          ></tc-datepicker>
 
           <div class="push-section">
             <div class="push-toggle-row">
