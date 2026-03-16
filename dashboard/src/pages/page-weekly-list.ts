@@ -171,6 +171,9 @@ export class PageWeeklyList extends LitElement {
   private confirmAction: { type: 'delete' | 'publish' | 'unpublish' | 'archive' | 'restore'; weekNumber: number } | null = null;
 
   @state()
+  private publishDate = '';
+
+  @state()
   private sendPushOnPublish = true;
 
   @state()
@@ -371,6 +374,16 @@ export class PageWeeklyList extends LitElement {
         <div class="publish-confirm-content">
           <p>確定要發布第 ${this.confirmAction.weekNumber} 期週報嗎？</p>
 
+          <div class="field">
+            <label class="field-label">發布日期</label>
+            <input
+              type="date"
+              class="field-input"
+              .value=${this.publishDate}
+              @input=${(e: Event) => (this.publishDate = (e.target as HTMLInputElement).value)}
+            />
+          </div>
+
           <div class="push-section">
             <div class="push-toggle-row">
               <tc-toggle
@@ -433,6 +446,8 @@ export class PageWeeklyList extends LitElement {
 
   private handlePublish(e: CustomEvent): void {
     const weekNumber = e.detail.weekNumber;
+    const weekly = this.weeklyList.find(w => w.week_number === weekNumber);
+    this.publishDate = weekly?.publish_date || new Date().toISOString().split('T')[0];
     this.pushTitle = `慈濟週報 第 ${weekNumber} 期`;
     this.pushBody = '最新一期週報已上線，立即閱讀！';
     this.sendPushOnPublish = true;
@@ -467,7 +482,7 @@ export class PageWeeklyList extends LitElement {
     try {
       switch (type) {
         case 'publish':
-          await updateWeeklyStatus(weekNumber, 'published', new Date().toISOString().split('T')[0]);
+          await updateWeeklyStatus(weekNumber, 'published', this.publishDate);
           toastStore.success('週報已發布');
           if (this.sendPushOnPublish) {
             try {
