@@ -54,6 +54,30 @@ export class TcImportDialog extends LitElement {
       color: var(--color-error, #dc2626);
     }
 
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--spacing-2);
+    }
+
+    .status-row .relogin-btn {
+      font-size: var(--font-size-xs);
+      font-family: inherit;
+      color: var(--color-accent);
+      background: transparent;
+      border: 1px solid var(--color-accent);
+      border-radius: var(--radius-sm);
+      padding: var(--spacing-1) var(--spacing-2);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all var(--transition-fast);
+    }
+
+    .status-row .relogin-btn:hover {
+      background: var(--color-accent-light);
+    }
+
     .footer-buttons {
       display: flex;
       gap: var(--spacing-3);
@@ -140,6 +164,7 @@ export class TcImportDialog extends LitElement {
           ></tc-input>
 
           ${this.renderClaudeStatus()}
+          ${this.renderDriveStatus()}
 
           <div class="info">
             系統將自動下載文件、解析內容、並進行 AI 改寫。整個過程需要數分鐘。
@@ -164,7 +189,11 @@ export class TcImportDialog extends LitElement {
   }
 
   private get isValid(): boolean {
-    return isValidDocUrl(this.docUrl) && this.weekNumber > 0 && this.claudeAuthenticated === true;
+    return isValidDocUrl(this.docUrl) && this.weekNumber > 0 && this.claudeAuthenticated === true && this.hasDriveToken;
+  }
+
+  private get hasDriveToken(): boolean {
+    return !!authStore.providerToken;
   }
 
   private renderClaudeStatus() {
@@ -175,6 +204,22 @@ export class TcImportDialog extends LitElement {
       return html`<div class="claude-status ok">Claude Code 已登入</div>`;
     }
     return html`<div class="claude-status error">Claude Code 尚未登入，請聯繫管理員</div>`;
+  }
+
+  private renderDriveStatus() {
+    if (this.hasDriveToken) {
+      return html`<div class="claude-status ok">Google Drive 已授權</div>`;
+    }
+    return html`
+      <div class="claude-status error status-row">
+        <span>Google Drive 尚未授權</span>
+        <button class="relogin-btn" @click=${this.handleReloginGoogle}>重新登入</button>
+      </div>
+    `;
+  }
+
+  private handleReloginGoogle(): void {
+    authStore.signInWithGoogle();
   }
 
   private async checkClaude(): Promise<void> {
