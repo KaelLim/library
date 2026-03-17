@@ -22,29 +22,26 @@ export class PagePush extends LitElement {
   static styles = css`
     :host {
       display: block;
-      padding: var(--spacing-6);
-      max-width: 960px;
-      margin: 0 auto;
     }
 
-    h2 {
-      font-size: var(--font-size-lg);
+    /* Send Form */
+    .send-section {
+      background: var(--color-bg-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-5);
+      margin-bottom: var(--spacing-6);
+    }
+
+    .send-section h2 {
+      font-size: var(--font-size-base);
       font-weight: var(--font-weight-semibold);
       color: var(--color-text-primary);
       margin: 0 0 var(--spacing-4) 0;
     }
 
-    /* Send Form */
-    .send-section {
-      background: var(--color-bg-card);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-lg);
-      padding: var(--spacing-6);
-      margin-bottom: var(--spacing-8);
-    }
-
     .form-group {
-      margin-bottom: var(--spacing-4);
+      margin-bottom: var(--spacing-3);
     }
 
     .form-group label {
@@ -92,23 +89,18 @@ export class PagePush extends LitElement {
       margin-top: var(--spacing-4);
     }
 
-    /* History Section */
-    .history-section {
-      background: var(--color-bg-card);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-lg);
-      padding: var(--spacing-6);
-    }
-
-    .history-header {
+    /* History Section - matches page-logs pattern */
+    .filters {
       display: flex;
       align-items: center;
       justify-content: space-between;
       margin-bottom: var(--spacing-4);
     }
 
-    .history-header h2 {
-      margin: 0;
+    .section-label {
+      font-size: var(--font-size-base);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-text-primary);
     }
 
     .filter-select {
@@ -121,35 +113,46 @@ export class PagePush extends LitElement {
       cursor: pointer;
     }
 
-    /* Table */
-    .table-container {
-      overflow-x: auto;
+    /* Log table - grid rows like page-logs */
+    .log-table {
+      background: var(--color-bg-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: var(--font-size-sm);
-    }
-
-    th {
-      text-align: left;
-      padding: var(--spacing-2) var(--spacing-3);
+    .log-header {
+      display: grid;
+      grid-template-columns: 100px 64px 1fr 1.5fr 56px 48px 48px 80px;
+      gap: var(--spacing-3);
+      padding: var(--spacing-3) var(--spacing-4);
+      background: var(--color-bg-muted);
+      font-size: var(--font-size-xs);
+      font-weight: var(--font-weight-semibold);
       color: var(--color-text-muted);
-      font-weight: var(--font-weight-medium);
-      border-bottom: 1px solid var(--color-border);
-      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
 
-    td {
-      padding: var(--spacing-2) var(--spacing-3);
-      color: var(--color-text-primary);
-      border-bottom: 1px solid var(--color-border-subtle);
-      vertical-align: top;
+    .log-row {
+      display: grid;
+      grid-template-columns: 100px 64px 1fr 1.5fr 56px 48px 48px 80px;
+      gap: var(--spacing-3);
+      padding: var(--spacing-3) var(--spacing-4);
+      border-top: 1px solid var(--color-border);
+      font-size: var(--font-size-sm);
+      align-items: center;
+      transition: background var(--transition-fast);
     }
 
-    tr:last-child td {
-      border-bottom: none;
+    .log-row:hover {
+      background: var(--color-bg-hover);
+    }
+
+    .log-time {
+      color: var(--color-text-muted);
+      font-size: var(--font-size-xs);
+      font-variant-numeric: tabular-nums;
     }
 
     .source-badge {
@@ -158,31 +161,48 @@ export class PagePush extends LitElement {
       border-radius: var(--radius-full);
       font-size: var(--font-size-xs);
       font-weight: var(--font-weight-medium);
-      color: var(--color-bg-card);
-    }
-
-    .cell-truncate {
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      color: #fff;
       white-space: nowrap;
     }
 
-    .cell-url a {
-      color: var(--color-primary);
-      text-decoration: none;
+    .log-title,
+    .log-body {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--color-text-primary);
     }
 
-    .cell-url a:hover {
+    .log-body {
+      color: var(--color-text-secondary);
+    }
+
+    .log-url a {
+      color: var(--color-primary);
+      text-decoration: none;
+      font-size: var(--font-size-xs);
+    }
+
+    .log-url a:hover {
       text-decoration: underline;
     }
 
-    .cell-number {
+    .log-number {
       text-align: center;
+      font-variant-numeric: tabular-nums;
     }
 
-    .cell-email {
-      max-width: 120px;
+    .log-number.success {
+      color: var(--color-success);
+    }
+
+    .log-number.error {
+      color: var(--color-error);
+    }
+
+    .log-user {
+      color: var(--color-text-muted);
+      font-size: var(--font-size-xs);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -229,9 +249,26 @@ export class PagePush extends LitElement {
     }
 
     .loading {
-      text-align: center;
-      padding: var(--spacing-8);
-      color: var(--color-text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--spacing-12);
+    }
+
+    @media (max-width: 768px) {
+      .log-header,
+      .log-row {
+        grid-template-columns: 80px 56px 1fr 48px 48px;
+      }
+
+      .log-header > :nth-child(4),
+      .log-row > :nth-child(4),
+      .log-header > :nth-child(5),
+      .log-row > :nth-child(5),
+      .log-header > :nth-child(8),
+      .log-row > :nth-child(8) {
+        display: none;
+      }
     }
   `;
 
@@ -342,22 +379,22 @@ export class PagePush extends LitElement {
       <tc-app-shell pageTitle="推播管理">
         ${this.renderSendForm()}
         ${this.renderHistory()}
-
-        <tc-dialog
-          ?open=${this.showConfirmDialog}
-          dialogTitle="確認發送"
-          @tc-close=${() => (this.showConfirmDialog = false)}
-        >
-          <p>確定要發送推播嗎？</p>
-          <p><strong>${this.pushTitle}</strong></p>
-          <p>${this.pushBody}</p>
-          ${this.pushUrl ? html`<p>連結：${this.pushUrl}</p>` : nothing}
-          <div slot="footer">
-            <tc-button variant="secondary" @click=${() => (this.showConfirmDialog = false)}>取消</tc-button>
-            <tc-button variant="primary" @click=${this.handleConfirmSend}>發送</tc-button>
-          </div>
-        </tc-dialog>
       </tc-app-shell>
+
+      <tc-dialog
+        ?open=${this.showConfirmDialog}
+        dialogTitle="確認發送"
+        @tc-close=${() => (this.showConfirmDialog = false)}
+      >
+        <p>確定要發送推播嗎？</p>
+        <p><strong>${this.pushTitle}</strong></p>
+        <p>${this.pushBody}</p>
+        ${this.pushUrl ? html`<p>連結：${this.pushUrl}</p>` : nothing}
+        <div slot="footer">
+          <tc-button variant="secondary" @click=${() => (this.showConfirmDialog = false)}>取消</tc-button>
+          <tc-button variant="primary" @click=${this.handleConfirmSend}>發送</tc-button>
+        </div>
+      </tc-dialog>
     `;
   }
 
@@ -410,62 +447,54 @@ export class PagePush extends LitElement {
 
   private renderHistory() {
     return html`
-      <div class="history-section">
-        <div class="history-header">
-          <h2>推播歷史</h2>
-          <select class="filter-select" @change=${this.handleFilterChange}>
-            <option value="">全部</option>
-            <option value="custom">自訂</option>
-            <option value="weekly_publish">週報發佈</option>
-            <option value="article">文稿推播</option>
-          </select>
-        </div>
-
-        ${this.loadingLogs
-          ? html`<div class="loading">載入中...</div>`
-          : this.logs.length === 0
-            ? html`<div class="empty-state">尚無推播紀錄</div>`
-            : html`
-                <div class="table-container">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>時間</th>
-                        <th>來源</th>
-                        <th>標題</th>
-                        <th>內文</th>
-                        <th>連結</th>
-                        <th>成功</th>
-                        <th>失敗</th>
-                        <th>操作者</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${this.logs.map(
-                        (log) => html`
-                          <tr>
-                            <td style="white-space:nowrap">${this.formatDate(log.created_at)}</td>
-                            <td>${this.renderSourceBadge(log.metadata?.source)}</td>
-                            <td class="cell-truncate">${log.metadata?.title || '-'}</td>
-                            <td class="cell-truncate">${this.truncate(log.metadata?.body || '-', 50)}</td>
-                            <td class="cell-url">
-                              ${log.metadata?.url
-                                ? html`<a href="${log.metadata.url}" target="_blank" rel="noopener">連結</a>`
-                                : '-'}
-                            </td>
-                            <td class="cell-number">${log.metadata?.sent ?? '-'}</td>
-                            <td class="cell-number">${log.metadata?.failed ?? '-'}</td>
-                            <td class="cell-email">${log.user_email?.split('@')[0] || '-'}</td>
-                          </tr>
-                        `
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                ${this.pageCount > 1 ? this.renderPagination() : nothing}
-              `}
+      <div class="filters">
+        <span class="section-label">推播歷史</span>
+        <select class="filter-select" @change=${this.handleFilterChange}>
+          <option value="">全部來源</option>
+          <option value="custom">自訂</option>
+          <option value="weekly_publish">週報發佈</option>
+          <option value="article">文稿推播</option>
+        </select>
       </div>
+
+      ${this.loadingLogs
+        ? html`<div class="loading"><tc-spinner></tc-spinner></div>`
+        : this.logs.length === 0
+          ? html`<div class="empty-state">尚無推播紀錄</div>`
+          : html`
+              <div class="log-table">
+                <div class="log-header">
+                  <span>時間</span>
+                  <span>來源</span>
+                  <span>標題</span>
+                  <span>內文</span>
+                  <span>連結</span>
+                  <span>成功</span>
+                  <span>失敗</span>
+                  <span>操作者</span>
+                </div>
+                ${this.logs.map(
+                  (log) => html`
+                    <div class="log-row">
+                      <span class="log-time">${this.formatDate(log.created_at)}</span>
+                      <span>${this.renderSourceBadge(log.metadata?.source)}</span>
+                      <span class="log-title">${log.metadata?.title || '-'}</span>
+                      <span class="log-body">${this.truncate(log.metadata?.body || '-', 50)}</span>
+                      <span class="log-url">
+                        ${log.metadata?.url
+                          ? html`<a href="${log.metadata.url}" target="_blank" rel="noopener">連結</a>`
+                          : '-'}
+                      </span>
+                      <span class="log-number success">${log.metadata?.sent ?? '-'}</span>
+                      <span class="log-number error">${log.metadata?.failed ?? '-'}</span>
+                      <span class="log-user">${log.user_email?.split('@')[0] || '-'}</span>
+                    </div>
+                  `
+                )}
+              </div>
+
+              ${this.pageCount > 1 ? this.renderPagination() : nothing}
+            `}
     `;
   }
 
