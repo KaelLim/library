@@ -13,6 +13,7 @@ import './pages/page-weekly-detail.js';
 import './pages/page-import-progress.js';
 import './pages/page-article-edit.js';
 import './pages/page-books-list.js';
+import './pages/page-push.js';
 import './pages/page-logs.js';
 import './pages/page-test-drive.js';
 import './pages/page-not-found.js';
@@ -104,6 +105,11 @@ export class TcApp extends LitElement {
         {
           path: '/books',
           component: 'page-books-list',
+          action: () => this.authGuard(),
+        },
+        {
+          path: '/push',
+          component: 'page-push',
           action: () => this.authGuard(),
         },
         {
