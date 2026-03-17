@@ -23,6 +23,9 @@ const ACTION_CONFIG: Record<string, { variant: string; label: string }> = {
   upload_pdf: { variant: 'info', label: 'PDF' },
   login: { variant: 'draft', label: '登入' },
   logout: { variant: 'draft', label: '登出' },
+  batch_generate_descriptions: { variant: 'info', label: '批次描述' },
+  batch_generate_thumbnails: { variant: 'info', label: '批次縮圖' },
+  send_push: { variant: 'info', label: '推播' },
 };
 
 const TAB_ACTIONS: { id: string; label: string }[] = [

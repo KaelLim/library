@@ -487,6 +487,7 @@ export class PageWeeklyList extends LitElement {
                 title: this.pushTitle,
                 body: this.pushBody,
                 url: `/weekly/${weekNumber}`,
+                source: 'weekly_publish',
               });
               toastStore.success(`推播已發送（${result.sent} 人）`);
             } catch (pushError) {

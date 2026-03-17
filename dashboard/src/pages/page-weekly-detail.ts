@@ -697,6 +697,7 @@ export class PageWeeklyDetail extends LitElement {
         title: this.articlePushTitle,
         body: this.articlePushBody,
         url: `/article/${this.pushingArticle.id}`,
+        source: 'article',
       });
       toastStore.success(`推播已發送（${result.sent} 人）`);
       this.pushingArticle = undefined;
@@ -732,6 +733,7 @@ export class PageWeeklyDetail extends LitElement {
             title: this.pushTitle,
             body: this.pushBody,
             url: `/weekly/${this.weekNumber}`,
+            source: 'weekly_publish',
           });
           toastStore.success(`推播已發送（${result.sent} 人）`);
         } catch (pushError) {

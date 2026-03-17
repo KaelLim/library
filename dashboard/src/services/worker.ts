@@ -121,6 +121,7 @@ export interface PushNotificationRequest {
   title: string;
   body: string;
   url?: string;
+  source?: 'custom' | 'weekly_publish' | 'article';
 }
 
 export interface PushNotificationResponse {
@@ -146,6 +147,63 @@ export async function sendPushNotification(
     headers,
     body: JSON.stringify(request),
   });
+
+  if (!response.ok) {
+    if (response.status === 429) {
+      throw new Error('推播頻率超過限制，請稍後再試');
+    }
+    const error = await response.json().catch(() => ({
+      message: `Request failed with status ${response.status}`,
+    }));
+    throw new Error(error.message);
+  }
+
+  return response.json();
+}
+
+export interface PushLogEntry {
+  id: number;
+  user_email: string | null;
+  metadata: {
+    title: string;
+    body: string;
+    url?: string;
+    sent: number;
+    failed: number;
+    source: string;
+  };
+  created_at: string;
+}
+
+export interface PushLogsResponse {
+  data: PushLogEntry[];
+  total: number;
+  page: number;
+  page_count: number;
+  limit: number;
+  offset: number;
+}
+
+export async function fetchPushLogs(
+  limit = 20,
+  offset = 0,
+  source?: string
+): Promise<PushLogsResponse> {
+  const headers: Record<string, string> = {};
+  const token = authStore.session?.access_token;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (source) {
+    params.set('source', source);
+  }
+
+  const response = await fetch(`/api/v1/push/logs?${params}`, { headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({
