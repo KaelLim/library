@@ -82,18 +82,13 @@ export async function sendPushNotification(options: {
 
   const tokens = subs.map((s: any) => s.token);
 
+  // 只使用 data payload（不用 notification payload）
+  // 避免背景時瀏覽器自動顯示 + onBackgroundMessage 手動顯示 = 雙重通知
   const message: admin.messaging.MulticastMessage = {
     tokens,
-    notification: {
+    data: {
       title: options.title,
       body: options.body,
-    },
-    webpush: {
-      fcmOptions: {
-        link: options.url || '/',
-      },
-    },
-    data: {
       url: options.url || '/',
     },
   };
