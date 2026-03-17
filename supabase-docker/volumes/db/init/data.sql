@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
   CONSTRAINT audit_logs_action_check CHECK (
-    action IN ('login', 'logout', 'insert', 'update', 'delete', 'import', 'ai_transform', 'create_book', 'upload_pdf')
+    action IN ('login', 'logout', 'insert', 'update', 'delete', 'import', 'ai_transform', 'create_book', 'upload_pdf', 'batch_generate_descriptions', 'batch_generate_thumbnails', 'send_push')
   )
 );
 

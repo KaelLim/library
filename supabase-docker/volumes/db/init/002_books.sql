@@ -68,7 +68,12 @@ CREATE INDEX IF NOT EXISTS idx_books_pdf_path ON public.books USING BTREE (pdf_p
 -- 更新 audit_logs action check (需要先刪除再重建)
 ALTER TABLE public.audit_logs DROP CONSTRAINT IF EXISTS audit_logs_action_check;
 ALTER TABLE public.audit_logs ADD CONSTRAINT audit_logs_action_check CHECK (
-  action IN ('login', 'logout', 'insert', 'update', 'delete', 'import', 'ai_transform', 'create_book', 'upload_pdf')
+  action IN (
+    'login', 'logout', 'insert', 'update', 'delete', 'import',
+    'ai_transform', 'create_book', 'upload_pdf',
+    'batch_generate_descriptions', 'batch_generate_thumbnails',
+    'send_push'
+  )
 );
 
 -- 預設電子書分類（來自既有資料）
