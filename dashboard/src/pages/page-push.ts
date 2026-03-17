@@ -324,8 +324,9 @@ export class PagePush extends LitElement {
   }
 
   private async handleConfirmSend(): Promise<void> {
-    this.showConfirmDialog = false;
+    if (this.sending) return;
     this.sending = true;
+    this.showConfirmDialog = false;
     try {
       const result = await sendPushNotification({
         title: this.pushTitle.trim(),
