@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { getSupabase } from '../services/supabase.js';
+import { getSupabase, insertAuditLog } from '../services/supabase.js';
 import { subscribeToken, unsubscribeToken, sendPushNotification } from '../services/push-notification.js';
 import { requireAuth } from '../middleware/auth.js';
 
@@ -496,7 +496,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
   // POST /push/send - 發送推播（dashboard 用）
   fastify.post<{
-    Body: { title: string; body: string; url?: string };
+    Body: { title: string; body: string; url?: string; source?: string };
   }>('/push/send', {
     preHandler: [requireAuth],
     config: { rateLimit: { max: 10, timeWindow: '1 hour' } },
@@ -510,13 +510,82 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         properties: {
           title: { type: 'string', minLength: 1, maxLength: 100, description: '通知標題' },
           body: { type: 'string', minLength: 1, maxLength: 500, description: '通知內文' },
-          url: { type: 'string', maxLength: 500, description: '點擊後開啟的網址' },
+          url: { type: 'string', maxLength: 500, pattern: '^(https://|/)', description: '點擊後開啟的網址' },
+          source: { type: 'string', enum: ['custom', 'weekly_publish', 'article'], default: 'custom', description: '推播來源' },
         },
       },
     },
   }, async (request) => {
-    const { title, body, url } = request.body;
-    return sendPushNotification({ title, body, url });
+    const { title, body, url, source = 'custom' } = request.body;
+    const result = await sendPushNotification({ title, body, url });
+
+    // 寫入 audit log（使用 insertAuditLog helper，同 books.ts / articles.ts 寫法）
+    await insertAuditLog({
+      user_email: (request as any).user?.email || null,
+      action: 'send_push',
+      table_name: 'push_subscriptions',
+      record_id: null,
+      old_data: null,
+      new_data: null,
+      metadata: { title, body, url, sent: result.sent, failed: result.failed, source },
+    });
+
+    return result;
+  });
+
+  // GET /push/logs - 查詢推播歷史
+  fastify.get<{
+    Querystring: { limit?: string; offset?: string; source?: string };
+  }>('/push/logs', {
+    preHandler: [requireAuth],
+    schema: {
+      tags: ['推播'],
+      summary: '查詢推播歷史',
+      description: '從 audit_logs 查詢推播紀錄',
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'string' },
+          offset: { type: 'string' },
+          source: { type: 'string', enum: ['custom', 'weekly_publish', 'article'] },
+        },
+      },
+    },
+  }, async (request) => {
+    const { limit: limitStr, offset: offsetStr, source } = request.query;
+    const { limit, offset } = parsePagination(limitStr, offsetStr);
+
+    const supabase = getSupabase();
+
+    // Count query
+    let countQuery = supabase
+      .from('audit_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('action', 'send_push');
+
+    if (source) {
+      countQuery = countQuery.eq('metadata->>source', source);
+    }
+
+    const { count } = await countQuery;
+
+    // Data query
+    let dataQuery = supabase
+      .from('audit_logs')
+      .select('id, user_email, metadata, created_at')
+      .eq('action', 'send_push')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (source) {
+      dataQuery = dataQuery.eq('metadata->>source', source);
+    }
+
+    const { data, error } = await dataQuery;
+
+    if (error) throw error;
+
+    return paginate(data || [], count || 0, limit, offset);
   });
 };
 
