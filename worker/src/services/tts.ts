@@ -1,13 +1,17 @@
 import { execFile } from 'child_process';
 import { writeFile, unlink, readFile } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { uploadToStorage } from './supabase.js';
 
 const TTS_API_BASE = process.env.TTS_API_URL || 'https://tcm1.tzuchi-org.tw';
-const TTS_INSTRUCT = '一名資深Podcaster 知性成熟的男低声，语速适中';
-const SENTENCE_GAP = 0.3; // 句子間停頓秒數
+
+// 參考音頻路徑（打包在 Docker image 內）
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REF_AUDIO_PATH = resolve(__dirname, '../../assets/tts-ref.mp3');
+const REF_TEXT = '慈濟基金會副執行長熊士民表示，防災士培訓已逐步納入慈善服務的重要工作之一。初期由急難救助隊成員參與培訓，後續也鼓勵志工與社區民眾報名。';
 
 interface TtsEvent {
   type: 'status' | 'progress' | 'done';
@@ -68,39 +72,24 @@ export function stripMarkdownForTts(markdown: string): string {
 }
 
 /**
- * 以「。」為單位分割文字為句組
- * 每個句組 = 從上一個「。」到下一個「。」的完整內容
+ * 呼叫 TTS clone API（SSE 串流），使用固定參考音頻，回傳 WAV Buffer
  */
-function splitBySentence(text: string): string[] {
-  // 以「。」切割，保留每段末尾的句號上下文
-  const raw = text.split(/(?<=。)/);
-  const sentences: string[] = [];
+async function callTtsClone(text: string): Promise<{ wav: Buffer; duration: number }> {
+  const refAudio = await readFile(REF_AUDIO_PATH);
 
-  for (const part of raw) {
-    const trimmed = part.trim();
-    if (trimmed) sentences.push(trimmed);
-  }
-
-  // 如果最後一段沒有「。」結尾，也納入
-  return sentences.length > 0 ? sentences : [text];
-}
-
-/**
- * 呼叫 TTS voice-design API（SSE 串流），回傳 WAV Buffer
- */
-async function callTtsVoiceDesign(text: string): Promise<{ wav: Buffer; duration: number }> {
   const formData = new FormData();
   formData.append('text', text);
-  formData.append('instruct', TTS_INSTRUCT);
+  formData.append('ref_audio', new Blob([new Uint8Array(refAudio)], { type: 'audio/mpeg' }), 'ref.mp3');
+  formData.append('ref_text', REF_TEXT);
 
-  const response = await fetch(`${TTS_API_BASE}/api/tts/voice-design`, {
+  const response = await fetch(`${TTS_API_BASE}/api/tts/clone`, {
     method: 'POST',
     body: formData,
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`TTS API error ${response.status}: ${errText}`);
+    throw new Error(`TTS Clone API error ${response.status}: ${errText}`);
   }
 
   // 解析 SSE 串流
@@ -120,90 +109,47 @@ async function callTtsVoiceDesign(text: string): Promise<{ wav: Buffer; duration
   }
 
   if (!audioBase64) {
-    throw new Error('TTS API returned no audio data');
+    throw new Error('TTS Clone API returned no audio data');
   }
 
   return { wav: Buffer.from(audioBase64, 'base64'), duration };
 }
 
 /**
- * 用 ffmpeg 執行指令
+ * WAV → MP3 轉換（使用 ffmpeg）
  */
-function runFfmpeg(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile('ffmpeg', args, (error) => {
-      if (error) reject(new Error(`ffmpeg failed: ${error.message}`));
-      else resolve();
-    });
-  });
-}
-
-/**
- * 生成指定秒數的靜音 WAV
- */
-async function generateSilenceWav(seconds: number, sampleRate: number): Promise<string> {
-  const path = join(tmpdir(), `silence_${randomUUID()}.wav`);
-  await runFfmpeg([
-    '-f', 'lavfi',
-    '-i', `anullsrc=r=${sampleRate}:cl=mono`,
-    '-t', String(seconds),
-    '-codec:a', 'pcm_s16le',
-    '-y', path,
-  ]);
-  return path;
-}
-
-/**
- * 用 ffmpeg concat 多個 WAV 檔（含句間停頓），輸出合併 WAV
- */
-async function concatWavFiles(wavPaths: string[], silencePath: string): Promise<string> {
+async function wavToMp3(wavBuffer: Buffer): Promise<Buffer> {
   const id = randomUUID();
-  const listPath = join(tmpdir(), `concat_${id}.txt`);
-  const outputPath = join(tmpdir(), `combined_${id}.wav`);
+  const wavPath = join(tmpdir(), `${id}.wav`);
+  const mp3Path = join(tmpdir(), `${id}.mp3`);
 
-  // 建立 ffmpeg concat list：wav1 + silence + wav2 + silence + ...
-  const lines: string[] = [];
-  for (let i = 0; i < wavPaths.length; i++) {
-    lines.push(`file '${wavPaths[i]}'`);
-    if (i < wavPaths.length - 1) {
-      lines.push(`file '${silencePath}'`);
-    }
+  try {
+    await writeFile(wavPath, wavBuffer);
+
+    await new Promise<void>((resolve, reject) => {
+      execFile('ffmpeg', [
+        '-i', wavPath,
+        '-codec:a', 'libmp3lame',
+        '-qscale:a', '4',
+        '-y',
+        mp3Path,
+      ], (error) => {
+        if (error) reject(new Error(`ffmpeg failed: ${error.message}`));
+        else resolve();
+      });
+    });
+
+    return await readFile(mp3Path);
+  } finally {
+    await unlink(wavPath).catch(() => {});
+    await unlink(mp3Path).catch(() => {});
   }
-  await writeFile(listPath, lines.join('\n'));
-
-  await runFfmpeg([
-    '-f', 'concat', '-safe', '0',
-    '-i', listPath,
-    '-codec:a', 'pcm_s16le',
-    '-y', outputPath,
-  ]);
-
-  await unlink(listPath).catch(() => {});
-  return outputPath;
-}
-
-/**
- * WAV → MP3 轉換
- */
-async function wavToMp3(wavPath: string): Promise<Buffer> {
-  const mp3Path = wavPath.replace(/\.wav$/, '.mp3');
-  await runFfmpeg([
-    '-i', wavPath,
-    '-codec:a', 'libmp3lame',
-    '-qscale:a', '4',  // ~165 kbps VBR
-    '-y', mp3Path,
-  ]);
-  const buf = await readFile(mp3Path);
-  await unlink(mp3Path).catch(() => {});
-  return buf;
 }
 
 /**
  * 呼叫 ASR forced-align API，回傳逐字時間戳
  */
-async function callAsrAlign(wavPath: string, text: string): Promise<AlignItem[]> {
-  const wavBuffer = await readFile(wavPath);
-
+async function callAsrAlign(wavBuffer: Buffer, text: string): Promise<AlignItem[]> {
   const formData = new FormData();
   formData.append('audio', new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' }), 'audio.wav');
   formData.append('text', text);
@@ -228,11 +174,9 @@ async function callAsrAlign(wavPath: string, text: string): Promise<AlignItem[]>
  * 用原文的標點符號來分段，再從 align items 取對應時間戳
  */
 function itemsToSrt(items: AlignItem[], originalText: string): string {
-  // 1. 用標點分割原文為句段
   const punctuation = /[。，！？；：、…\n]+/;
   const rawSegments = originalText.split(punctuation).filter(s => s.trim());
 
-  // 2. 建立 align items 的字元 → 時間對照表
   let itemIdx = 0;
   const segments: { text: string; start: number; end: number }[] = [];
 
@@ -255,7 +199,7 @@ function itemsToSrt(items: AlignItem[], originalText: string): string {
     }
   }
 
-  // 3. 合併太短的段落（< 2 秒且 < 10 字）
+  // 合併太短的段落（< 2 秒且 < 10 字）
   const merged: typeof segments = [];
   for (const seg of segments) {
     const prev = merged[merged.length - 1];
@@ -289,74 +233,38 @@ function formatSrtTime(seconds: number): string {
  *
  * 流程：
  * 1. 去除 markdown 格式
- * 2. 以「。」為單位分句
- * 3. 逐句呼叫 TTS 生成 WAV
- * 4. ffmpeg 串接所有 WAV（句間 0.3s 停頓）
- * 5. 合併後 WAV → MP3
- * 6. 合併後 WAV + 原文 → ASR forced-align → SRT
- * 7. 上傳 MP3 和 SRT 到 Storage
+ * 2. Clone TTS（使用固定參考音頻，API 自動分段串接）
+ * 3. WAV → MP3
+ * 4. ASR forced-align → SRT
+ * 5. 上傳 MP3 和 SRT 到 Storage
  */
 export async function generateArticleAudio(
   weeklyId: number,
   articleId: number,
   markdown: string,
 ): Promise<{ mp3Url: string; srtUrl: string; duration: number }> {
-  const tempFiles: string[] = [];
-
-  try {
-    // 1. 去除 markdown 格式
-    const plainText = stripMarkdownForTts(markdown);
-    if (!plainText) {
-      throw new Error('Article has no text content for TTS');
-    }
-
-    // 2. 以「。」分句
-    const sentences = splitBySentence(plainText);
-    console.log(`[tts] Article ${articleId}: ${sentences.length} sentences`);
-
-    // 3. 逐句 TTS → WAV 檔案
-    const wavPaths: string[] = [];
-    let sampleRate = 24000;
-
-    for (let i = 0; i < sentences.length; i++) {
-      const { wav, duration } = await callTtsVoiceDesign(sentences[i]);
-      const wavPath = join(tmpdir(), `tts_${articleId}_${i}_${randomUUID()}.wav`);
-      await writeFile(wavPath, wav);
-      wavPaths.push(wavPath);
-      tempFiles.push(wavPath);
-      console.log(`[tts] Sentence ${i + 1}/${sentences.length}: ${duration.toFixed(1)}s`);
-    }
-
-    // 4. 生成靜音片段 + 串接
-    const silencePath = await generateSilenceWav(SENTENCE_GAP, sampleRate);
-    tempFiles.push(silencePath);
-
-    const combinedWavPath = await concatWavFiles(wavPaths, silencePath);
-    tempFiles.push(combinedWavPath);
-
-    // 5. 合併 WAV → MP3
-    const mp3Buffer = await wavToMp3(combinedWavPath);
-
-    // 6. ASR forced-align（合併後 WAV + 原文） → SRT
-    const alignItems = await callAsrAlign(combinedWavPath, plainText);
-    const srtContent = itemsToSrt(alignItems, plainText);
-
-    // 計算總時長
-    const combinedWav = await readFile(combinedWavPath);
-    const totalDuration = (combinedWav.length - 44) / (sampleRate * 2); // 16-bit mono
-
-    // 7. 上傳到 Storage
-    const mp3Path = `articles/${weeklyId}/mp3/${articleId}.mp3`;
-    const srtPath = `articles/${weeklyId}/srt/${articleId}.srt`;
-
-    const mp3Url = await uploadToStorage('weekly', mp3Path, mp3Buffer, 'audio/mpeg');
-    const srtUrl = await uploadToStorage('weekly', srtPath, srtContent, 'text/srt');
-
-    return { mp3Url, srtUrl, duration: totalDuration };
-  } finally {
-    // 清理所有暫存檔
-    for (const f of tempFiles) {
-      await unlink(f).catch(() => {});
-    }
+  // 1. 去除 markdown 格式
+  const plainText = stripMarkdownForTts(markdown);
+  if (!plainText) {
+    throw new Error('Article has no text content for TTS');
   }
+
+  // 2. Clone TTS → WAV
+  const { wav, duration } = await callTtsClone(plainText);
+
+  // 3. WAV → MP3
+  const mp3Buffer = await wavToMp3(wav);
+
+  // 4. ASR forced-align → SRT
+  const alignItems = await callAsrAlign(wav, plainText);
+  const srtContent = itemsToSrt(alignItems, plainText);
+
+  // 5. 上傳到 Storage
+  const mp3Path = `articles/${weeklyId}/mp3/${articleId}.mp3`;
+  const srtPath = `articles/${weeklyId}/srt/${articleId}.srt`;
+
+  const mp3Url = await uploadToStorage('weekly', mp3Path, mp3Buffer, 'audio/mpeg');
+  const srtUrl = await uploadToStorage('weekly', srtPath, srtContent, 'text/srt');
+
+  return { mp3Url, srtUrl, duration };
 }

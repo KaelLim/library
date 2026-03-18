@@ -24,9 +24,10 @@ COPY package*.json ./
 # Install all dependencies (including devDependencies for build)
 RUN npm ci
 
-# Copy source files
+# Copy source files and assets
 COPY tsconfig.json ./
 COPY src ./src
+COPY assets ./assets
 
 # Build TypeScript
 RUN npm run build
