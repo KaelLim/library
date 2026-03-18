@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { rewriteForDigital, generateDescription } from '../services/ai-rewriter.js';
+import { generateArticleAudio } from '../services/tts.js';
 import { requireAuth } from '../middleware/auth.js';
 import {
   getArticleById,
@@ -186,6 +187,70 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  });
+
+  // Generate audio for a single digital article
+  fastify.post<{
+    Body: { article_id: number };
+  }>('/generate-audio', {
+    preHandler: [requireAuth],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['article_id'],
+        properties: {
+          article_id: { type: 'integer' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { article_id } = request.body;
+
+    const article = await getArticleById(article_id);
+    if (!article) {
+      return reply.status(404).send({
+        error: 'ARTICLE_NOT_FOUND',
+        message: `Article ${article_id} not found`,
+      });
+    }
+
+    if (article.platform !== 'digital') {
+      return reply.status(400).send({
+        error: 'NOT_DIGITAL_ARTICLE',
+        message: 'Only digital articles can generate audio',
+      });
+    }
+
+    // 非同步執行，立即回傳 202
+    reply.status(202).send({
+      success: true,
+      message: `Generating audio for article ${article_id}`,
+      article_id,
+    });
+
+    (async () => {
+      try {
+        const result = await generateArticleAudio(article.weekly_id, article_id, article.content);
+        console.log(`[generate-audio] Article ${article_id}: ${result.duration.toFixed(1)}s, mp3=${result.mp3Url}`);
+        await insertAuditLog({
+          user_email: (request as any).user?.email || null,
+          action: 'ai_transform',
+          table_name: 'articles',
+          record_id: article_id,
+          old_data: null,
+          new_data: null,
+          metadata: {
+            type: 'generate_audio',
+            weekly_id: article.weekly_id,
+            duration: result.duration,
+            mp3_url: result.mp3Url,
+            srt_url: result.srtUrl,
+          },
+        });
+      } catch (err) {
+        console.error(`[generate-audio] Article ${article_id} failed:`, err);
+      }
+    })().catch(() => {});
   });
 
   // Get count of articles without description
