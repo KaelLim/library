@@ -11,7 +11,7 @@ const TTS_API_BASE = process.env.TTS_API_URL || 'https://tcm1.tzuchi-org.tw';
 // 參考音頻路徑（打包在 Docker image 內）
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REF_AUDIO_PATH = resolve(__dirname, '../../assets/tts-ref.mp3');
-const REF_TEXT = '慈濟基金會副執行長熊士民表示，防災士培訓已逐步納入慈善服務的重要工作之一。初期由急難救助隊成員參與培訓，後續也鼓勵志工與社區民眾報名。';
+const REF_TEXT_PATH = resolve(__dirname, '../../assets/tts-ref.txt');
 
 interface TtsEvent {
   type: 'status' | 'progress' | 'done' | 'queue';
@@ -79,11 +79,12 @@ export function stripMarkdownForTts(markdown: string): string {
  */
 async function callTtsClone(text: string, onProgress?: TtsProgressCallback): Promise<{ wav: Buffer; duration: number }> {
   const refAudio = await readFile(REF_AUDIO_PATH);
+  const refText = (await readFile(REF_TEXT_PATH, 'utf-8')).trim();
 
   const formData = new FormData();
   formData.append('text', text);
   formData.append('ref_audio', new Blob([new Uint8Array(refAudio)], { type: 'audio/mpeg' }), 'ref.mp3');
-  formData.append('ref_text', REF_TEXT);
+  formData.append('ref_text', refText);
 
   const response = await fetch(`${TTS_API_BASE}/api/tts/clone`, {
     method: 'POST',
