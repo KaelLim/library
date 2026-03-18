@@ -9,7 +9,7 @@ import {
   getArticleCountsByCategory,
   type ArticleWithCategory,
 } from '../services/articles.js';
-import { sendPushNotification } from '../services/worker.js';
+import { sendPushNotification, generateArticleAudio } from '../services/worker.js';
 import { authStore } from '../stores/auth-store.js';
 import { toastStore } from '../stores/toast-store.js';
 import '../components/layout/tc-app-shell.js';
@@ -518,7 +518,9 @@ export class PageWeeklyDetail extends LitElement {
                   (article) => html`
                     <tc-article-card
                       .article=${article}
+                      ?showAudio=${this.platform === 'digital'}
                       ?showPush=${this.platform === 'digital'}
+                      @tc-article-audio=${this.handleArticleAudio}
                       @tc-article-push=${this.handleArticlePush}
                     ></tc-article-card>
                   `
@@ -668,6 +670,16 @@ export class PageWeeklyDetail extends LitElement {
     this.activeCategory = e.detail.categoryId;
     this.updateQueryParams();
     await this.loadArticles();
+  }
+
+  private async handleArticleAudio(e: CustomEvent): Promise<void> {
+    const article = e.detail.article as Article;
+    try {
+      await generateArticleAudio(article.id);
+      toastStore.success(`語音生成已開始：${article.title}`);
+    } catch (err) {
+      toastStore.error(`語音生成失敗：${err instanceof Error ? err.message : '未知錯誤'}`);
+    }
   }
 
   private handleArticlePush(e: CustomEvent): void {

@@ -62,6 +62,19 @@ export async function rewriteArticle(request: RewriteRequest): Promise<RewriteRe
   });
 }
 
+export interface GenerateAudioResponse {
+  success: boolean;
+  message: string;
+  article_id: number;
+}
+
+export async function generateArticleAudio(articleId: number): Promise<GenerateAudioResponse> {
+  return fetchWorker<GenerateAudioResponse>('/generate-audio', {
+    method: 'POST',
+    body: JSON.stringify({ article_id: articleId }),
+  });
+}
+
 export interface HealthResponse {
   status: 'ok' | 'error';
   timestamp: string;

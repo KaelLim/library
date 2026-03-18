@@ -95,6 +95,7 @@ export class TcArticleCard extends LitElement {
 
   @property({ type: Object }) article!: ArticleWithCategory;
   @property({ type: Boolean }) showPush = false;
+  @property({ type: Boolean }) showAudio = false;
 
   private stripMarkdown(content: string): string {
     return content
@@ -151,6 +152,16 @@ export class TcArticleCard extends LitElement {
               </svg>
               編輯
             </button>
+            ${this.showAudio
+              ? html`
+                  <button class="action-btn" @click=${this.handleAudio}>
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                    </svg>
+                    語音
+                  </button>
+                `
+              : ''}
             ${this.showPush
               ? html`
                   <button class="action-btn" @click=${this.handlePush}>
@@ -173,6 +184,17 @@ export class TcArticleCard extends LitElement {
     const { weekly_id, id } = this.article;
     const query = window.location.search;
     Router.go(`/weekly/${weekly_id}/article/${id}${query}`);
+  }
+
+  private handleAudio(e: Event): void {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent('tc-article-audio', {
+        detail: { article: this.article },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private handlePush(e: Event): void {
