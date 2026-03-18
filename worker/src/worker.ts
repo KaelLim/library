@@ -214,7 +214,9 @@ export async function runImportWorker(
 
     for (const article of digitalArticles) {
       try {
-        const result = await generateArticleAudio(weeklyId, article.id, article.content);
+        const result = await generateArticleAudio(weeklyId, article.id, article.content, async (msg) => {
+          await updateProgress('generating_audio', `語音生成 ${audioCount + 1}/${digitalArticles.length} — ${msg}`);
+        });
         console.log(`[generating_audio] Article ${article.id}: ${result.duration.toFixed(1)}s`);
       } catch (err) {
         // 語音生成失敗不阻擋整個匯入流程

@@ -14,14 +14,17 @@ const REF_AUDIO_PATH = resolve(__dirname, '../../assets/tts-ref.mp3');
 const REF_TEXT = '慈濟基金會副執行長熊士民表示，防災士培訓已逐步納入慈善服務的重要工作之一。初期由急難救助隊成員參與培訓，後續也鼓勵志工與社區民眾報名。';
 
 interface TtsEvent {
-  type: 'status' | 'progress' | 'done';
+  type: 'status' | 'progress' | 'done' | 'queue';
   message?: string;
   audio?: string; // base64 WAV
   sample_rate?: number;
   duration?: number;
   elapsed?: number;
   chunks?: number;
+  total_chunks?: number;
 }
+
+export type TtsProgressCallback = (message: string) => void;
 
 interface AlignItem {
   text: string;
@@ -74,7 +77,7 @@ export function stripMarkdownForTts(markdown: string): string {
 /**
  * 呼叫 TTS clone API（SSE 串流），使用固定參考音頻，回傳 WAV Buffer
  */
-async function callTtsClone(text: string): Promise<{ wav: Buffer; duration: number }> {
+async function callTtsClone(text: string, onProgress?: TtsProgressCallback): Promise<{ wav: Buffer; duration: number }> {
   const refAudio = await readFile(REF_AUDIO_PATH);
 
   const formData = new FormData();
@@ -102,7 +105,11 @@ async function callTtsClone(text: string): Promise<{ wav: Buffer; duration: numb
   for (const line of lines) {
     if (!line.startsWith('data: ')) continue;
     const event: TtsEvent = JSON.parse(line.slice(6));
-    if (event.type === 'done' && event.audio) {
+    if (event.type === 'queue' && event.message) {
+      onProgress?.(event.message);
+    } else if (event.type === 'progress' && event.chunks && event.total_chunks) {
+      onProgress?.(`生成中... ${event.chunks}/${event.total_chunks} 段`);
+    } else if (event.type === 'done' && event.audio) {
       audioBase64 = event.audio;
       duration = event.duration || 0;
     }
@@ -242,6 +249,7 @@ export async function generateArticleAudio(
   weeklyId: number,
   articleId: number,
   markdown: string,
+  onProgress?: TtsProgressCallback,
 ): Promise<{ mp3Url: string; srtUrl: string; duration: number }> {
   // 1. 去除 markdown 格式
   const plainText = stripMarkdownForTts(markdown);
@@ -250,12 +258,15 @@ export async function generateArticleAudio(
   }
 
   // 2. Clone TTS → WAV
-  const { wav, duration } = await callTtsClone(plainText);
+  onProgress?.('語音生成中...');
+  const { wav, duration } = await callTtsClone(plainText, onProgress);
 
   // 3. WAV → MP3
+  onProgress?.('轉換音頻格式中...');
   const mp3Buffer = await wavToMp3(wav);
 
   // 4. ASR forced-align → SRT
+  onProgress?.('生成字幕中...');
   const alignItems = await callAsrAlign(wav, plainText);
   const srtContent = itemsToSrt(alignItems, plainText);
 
