@@ -11,6 +11,7 @@ export type ImportStep =
   | 'importing_docs'
   | 'ai_rewriting'
   | 'importing_digital'
+  | 'generating_audio'
   | 'completed'
   | 'failed';
 
@@ -56,6 +57,7 @@ export const IMPORT_STEPS: StepInfo[] = [
   { key: 'importing_docs', label: '匯入原稿', description: '將原稿匯入資料庫' },
   { key: 'ai_rewriting', label: 'AI 改寫', description: '改寫為數位版' },
   { key: 'importing_digital', label: '匯入數位版', description: '將數位版匯入資料庫' },
+  { key: 'generating_audio', label: '語音生成', description: '生成文稿語音與字幕' },
   { key: 'completed', label: '完成', description: '匯入完成' },
 ];
 

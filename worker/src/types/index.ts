@@ -127,6 +127,7 @@ export type ImportStep =
   | 'importing_docs'
   | 'ai_rewriting'
   | 'importing_digital'
+  | 'generating_audio'
   | 'completed'
   | 'failed';
 

@@ -5,6 +5,7 @@ import { extractFolderId } from './services/google-drive.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { cleanupChannel } from './services/session-streamer.js';
+import { generateArticleAudio } from './services/tts.js';
 import {
   initSupabase,
   getOrCreateWeekly,
@@ -169,6 +170,7 @@ export async function runImportWorker(
 
     // 7. AI 改寫為 digital 版
     let rewrittenCount = 0;
+    const digitalArticles: { id: number; content: string }[] = [];
     await updateProgress('ai_rewriting', `AI 改寫中... 0/${totalArticles}`);
 
     for (const category of parsed.categories) {
@@ -183,6 +185,8 @@ export async function runImportWorker(
           description: rewritten.description,
           content: rewritten.content,
         });
+
+        digitalArticles.push({ id: inserted.id, content: rewritten.content });
 
         await writeAuditLog({
           user_email: userEmail || null,
@@ -202,6 +206,22 @@ export async function runImportWorker(
         rewrittenCount++;
         await updateProgress('ai_rewriting', `AI 改寫中... ${rewrittenCount}/${totalArticles}`);
       }
+    }
+
+    // 8. 生成語音和字幕
+    let audioCount = 0;
+    await updateProgress('generating_audio', `語音生成中... 0/${digitalArticles.length}`);
+
+    for (const article of digitalArticles) {
+      try {
+        const result = await generateArticleAudio(weeklyId, article.id, article.content);
+        console.log(`[generating_audio] Article ${article.id}: ${result.duration.toFixed(1)}s`);
+      } catch (err) {
+        // 語音生成失敗不阻擋整個匯入流程
+        console.error(`[generating_audio] Article ${article.id} failed:`, err);
+      }
+      audioCount++;
+      await updateProgress('generating_audio', `語音生成中... ${audioCount}/${digitalArticles.length}`);
     }
 
     // 完成
