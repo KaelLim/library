@@ -276,7 +276,7 @@ export async function generateArticleAudio(
   const srtPath = `articles/${weeklyId}/srt/${articleId}.srt`;
 
   const mp3Url = await uploadToStorage('weekly', mp3Path, mp3Buffer, 'audio/mpeg');
-  const srtUrl = await uploadToStorage('weekly', srtPath, srtContent, 'text/srt');
+  const srtUrl = await uploadToStorage('weekly', srtPath, srtContent, 'text/plain; charset=utf-8');
 
   return { mp3Url, srtUrl, duration };
 }
