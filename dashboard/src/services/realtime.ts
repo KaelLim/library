@@ -76,6 +76,38 @@ export function extractTextFromSessionOutput(update: SessionOutputUpdate): strin
   return data.message.content;
 }
 
+// =====================
+// Audio 語音生成進度
+// =====================
+
+export interface AudioProgressUpdate {
+  status: 'processing' | 'completed' | 'failed';
+  message: string;
+  mp3Url?: string;
+  srtUrl?: string;
+  duration?: number;
+}
+
+export type AudioProgressCallback = (update: AudioProgressUpdate) => void;
+
+export function subscribeToAudioProgress(
+  articleId: number,
+  callback: AudioProgressCallback
+): RealtimeChannel {
+  const channel = supabase
+    .channel(`audio:${articleId}`)
+    .on('broadcast', { event: 'progress' }, (payload) => {
+      callback(payload.payload as AudioProgressUpdate);
+    })
+    .subscribe();
+
+  return channel;
+}
+
+export function unsubscribeFromAudioProgress(channel: RealtimeChannel): void {
+  supabase.removeChannel(channel);
+}
+
 /**
  * 從 weekly 表讀取當前匯入狀態
  */

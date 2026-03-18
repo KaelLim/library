@@ -234,6 +234,22 @@ export async function broadcastImportProgress(
   });
 }
 
+/**
+ * 廣播語音生成進度到 Realtime channel
+ */
+export async function broadcastAudioProgress(
+  articleId: number,
+  data: { status: 'processing' | 'completed' | 'failed'; message: string; mp3Url?: string; srtUrl?: string; duration?: number }
+): Promise<void> {
+  const channel = getSupabase().channel(`audio:${articleId}`);
+
+  await channel.send({
+    type: 'broadcast',
+    event: 'progress',
+    payload: data,
+  });
+}
+
 // =====================
 // Books 電子書操作
 // =====================

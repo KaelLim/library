@@ -8,6 +8,7 @@ import {
   insertAuditLog,
   updateArticle,
   getArticlesWithoutDescription,
+  broadcastAudioProgress,
 } from '../services/supabase.js';
 
 export const articleRoutes: FastifyPluginAsync = async (fastify) => {
@@ -230,8 +231,24 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
 
     (async () => {
       try {
-        const result = await generateArticleAudio(article.weekly_id, article_id, article.content);
+        const result = await generateArticleAudio(
+          article.weekly_id,
+          article_id,
+          article.content,
+          async (msg) => {
+            await broadcastAudioProgress(article_id, { status: 'processing', message: msg });
+          },
+        );
         console.log(`[generate-audio] Article ${article_id}: ${result.duration.toFixed(1)}s, mp3=${result.mp3Url}`);
+
+        await broadcastAudioProgress(article_id, {
+          status: 'completed',
+          message: '語音生成完成',
+          mp3Url: result.mp3Url,
+          srtUrl: result.srtUrl,
+          duration: result.duration,
+        });
+
         await insertAuditLog({
           user_email: (request as any).user?.email || null,
           action: 'ai_transform',
@@ -249,6 +266,10 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
         });
       } catch (err) {
         console.error(`[generate-audio] Article ${article_id} failed:`, err);
+        await broadcastAudioProgress(article_id, {
+          status: 'failed',
+          message: err instanceof Error ? err.message : '語音生成失敗',
+        });
       }
     })().catch(() => {});
   });

@@ -10,6 +10,8 @@ import {
   type ArticleWithCategory,
 } from '../services/articles.js';
 import { sendPushNotification, generateArticleAudio } from '../services/worker.js';
+import { subscribeToAudioProgress, unsubscribeFromAudioProgress } from '../services/realtime.js';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { authStore } from '../stores/auth-store.js';
 import { toastStore } from '../stores/toast-store.js';
 import '../components/layout/tc-app-shell.js';
@@ -672,11 +674,33 @@ export class PageWeeklyDetail extends LitElement {
     await this.loadArticles();
   }
 
+  private audioChannel: RealtimeChannel | null = null;
+
   private async handleArticleAudio(e: CustomEvent): Promise<void> {
     const article = e.detail.article as Article;
     try {
+      // 先訂閱進度
+      if (this.audioChannel) unsubscribeFromAudioProgress(this.audioChannel);
+      this.audioChannel = subscribeToAudioProgress(article.id, (update) => {
+        if (update.status === 'processing') {
+          toastStore.info(update.message);
+        } else if (update.status === 'completed') {
+          toastStore.success(`語音生成完成：${article.title}（${update.duration?.toFixed(0)}秒）`);
+          if (this.audioChannel) {
+            unsubscribeFromAudioProgress(this.audioChannel);
+            this.audioChannel = null;
+          }
+        } else if (update.status === 'failed') {
+          toastStore.error(`語音生成失敗：${update.message}`);
+          if (this.audioChannel) {
+            unsubscribeFromAudioProgress(this.audioChannel);
+            this.audioChannel = null;
+          }
+        }
+      });
+
       await generateArticleAudio(article.id);
-      toastStore.success(`語音生成已開始：${article.title}`);
+      toastStore.info(`語音生成已開始：${article.title}`);
     } catch (err) {
       toastStore.error(`語音生成失敗：${err instanceof Error ? err.message : '未知錯誤'}`);
     }
