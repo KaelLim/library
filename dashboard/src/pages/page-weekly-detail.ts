@@ -269,6 +269,67 @@ export class PageWeeklyDetail extends LitElement {
     .footer-buttons tc-button {
       flex: 1;
     }
+
+    .audio-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 16px;
+      animation: slideDown 0.2s ease-out;
+    }
+
+    .audio-banner.processing {
+      background: var(--color-bg-info, #eff6ff);
+      border: 1px solid var(--color-border-info, #bfdbfe);
+      color: var(--color-text-info, #1e40af);
+    }
+
+    .audio-banner.completed {
+      background: var(--color-bg-success, #f0fdf4);
+      border: 1px solid var(--color-border-success, #bbf7d0);
+      color: var(--color-text-success, #166534);
+    }
+
+    .audio-banner.failed {
+      background: var(--color-bg-error, #fef2f2);
+      border: 1px solid var(--color-border-error, #fecaca);
+      color: var(--color-text-error, #991b1b);
+    }
+
+    .audio-banner .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .audio-banner .close-btn {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      padding: 4px;
+      opacity: 0.6;
+    }
+
+    .audio-banner .close-btn:hover {
+      opacity: 1;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   `;
 
   @property({ type: Object })
@@ -321,6 +382,15 @@ export class PageWeeklyDetail extends LitElement {
 
   @state()
   private pushBody = '';
+
+  @state()
+  private audioStatus: 'idle' | 'processing' | 'completed' | 'failed' = 'idle';
+
+  @state()
+  private audioMessage = '';
+
+  @state()
+  private audioArticleTitle = '';
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
@@ -419,6 +489,8 @@ export class PageWeeklyDetail extends LitElement {
           </svg>
           <span>第 ${this.weekNumber} 期</span>
         </nav>
+
+        ${this.renderAudioBanner()}
 
         <!-- Page Header -->
         <div class="page-header">
@@ -676,33 +748,71 @@ export class PageWeeklyDetail extends LitElement {
 
   private audioChannel: RealtimeChannel | null = null;
 
+  private renderAudioBanner() {
+    if (this.audioStatus === 'idle') return '';
+
+    const icon = this.audioStatus === 'processing'
+      ? html`<div class="spinner"></div>`
+      : this.audioStatus === 'completed'
+        ? html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`
+        : html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`;
+
+    return html`
+      <div class="audio-banner ${this.audioStatus}">
+        ${icon}
+        <div>
+          <strong>${this.audioArticleTitle}</strong>
+          <span> — ${this.audioMessage}</span>
+        </div>
+        ${this.audioStatus !== 'processing'
+          ? html`<button class="close-btn" @click=${this.dismissAudioBanner}>✕</button>`
+          : ''}
+      </div>
+    `;
+  }
+
+  private dismissAudioBanner(): void {
+    this.audioStatus = 'idle';
+  }
+
   private async handleArticleAudio(e: CustomEvent): Promise<void> {
     const article = e.detail.article as Article;
     try {
-      // 先訂閱進度
+      // 更新 banner
+      this.audioArticleTitle = article.title;
+      this.audioStatus = 'processing';
+      this.audioMessage = '語音生成準備中...';
+
+      // 訂閱進度
       if (this.audioChannel) unsubscribeFromAudioProgress(this.audioChannel);
       this.audioChannel = subscribeToAudioProgress(article.id, (update) => {
-        if (update.status === 'processing') {
-          toastStore.info(update.message);
-        } else if (update.status === 'completed') {
-          toastStore.success(`語音生成完成：${article.title}（${update.duration?.toFixed(0)}秒）`);
-          if (this.audioChannel) {
-            unsubscribeFromAudioProgress(this.audioChannel);
-            this.audioChannel = null;
-          }
+        this.audioMessage = update.message;
+
+        if (update.status === 'completed') {
+          this.audioStatus = 'completed';
+          this.audioMessage = `完成（${update.duration?.toFixed(0)} 秒音檔）`;
+          this.cleanupAudioChannel();
+          // 5 秒後自動消失
+          setTimeout(() => {
+            if (this.audioStatus === 'completed') this.audioStatus = 'idle';
+          }, 5000);
         } else if (update.status === 'failed') {
-          toastStore.error(`語音生成失敗：${update.message}`);
-          if (this.audioChannel) {
-            unsubscribeFromAudioProgress(this.audioChannel);
-            this.audioChannel = null;
-          }
+          this.audioStatus = 'failed';
+          this.cleanupAudioChannel();
         }
       });
 
       await generateArticleAudio(article.id);
-      toastStore.info(`語音生成已開始：${article.title}`);
     } catch (err) {
-      toastStore.error(`語音生成失敗：${err instanceof Error ? err.message : '未知錯誤'}`);
+      this.audioStatus = 'failed';
+      this.audioMessage = err instanceof Error ? err.message : '未知錯誤';
+    }
+  }
+
+  private cleanupAudioChannel(): void {
+    if (this.audioChannel) {
+      unsubscribeFromAudioProgress(this.audioChannel);
+      this.audioChannel = null;
     }
   }
 
