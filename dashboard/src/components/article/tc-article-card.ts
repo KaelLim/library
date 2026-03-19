@@ -1,8 +1,10 @@
-import { LitElement, html, css } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { LitElement, html, css, nothing } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
 import type { Article, Category } from '../../types/index.js';
 import { formatDate } from '../../utils/formatting.js';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'http://localhost:8000';
 
 interface ArticleWithCategory extends Article {
   category?: Category;
@@ -91,11 +93,48 @@ export class TcArticleCard extends LitElement {
       line-height: 1.6;
       color: var(--color-text-secondary);
     }
+
+    .audio-player {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .audio-player audio {
+      height: 32px;
+      flex: 1;
+    }
+
+    .play-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--color-text-muted);
+      background: transparent;
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .play-btn:hover {
+      color: var(--color-text-primary);
+      background: var(--color-bg-hover);
+    }
+
+    .play-btn svg {
+      width: 12px;
+      height: 12px;
+    }
   `;
 
   @property({ type: Object }) article!: ArticleWithCategory;
   @property({ type: Boolean }) showPush = false;
   @property({ type: Boolean }) showAudio = false;
+
+  @state() private showPlayer = false;
 
   private stripMarkdown(content: string): string {
     return content
@@ -175,6 +214,7 @@ export class TcArticleCard extends LitElement {
           </div>
         </div>
         <p class="content">${this.getPreview(content)}</p>
+        ${this.showAudio ? this.renderPlayer() : nothing}
       </div>
     `;
   }
@@ -195,6 +235,35 @@ export class TcArticleCard extends LitElement {
         composed: true,
       })
     );
+  }
+
+  private getMp3Url(): string {
+    const { weekly_id, id } = this.article;
+    return `${SUPABASE_URL}/storage/v1/object/public/weekly/articles/${weekly_id}/mp3/${id}.mp3`;
+  }
+
+  private renderPlayer() {
+    if (!this.showPlayer) {
+      return html`
+        <div class="audio-player">
+          <button class="play-btn" @click=${this.handlePlay}>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            試聽
+          </button>
+        </div>
+      `;
+    }
+
+    return html`
+      <div class="audio-player">
+        <audio controls autoplay src=${this.getMp3Url()}></audio>
+      </div>
+    `;
+  }
+
+  private handlePlay(e: Event): void {
+    e.stopPropagation();
+    this.showPlayer = true;
   }
 
   private handlePush(e: Event): void {
