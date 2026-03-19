@@ -201,7 +201,7 @@ async function callAsrAlign(wavBuffer: Buffer, text: string): Promise<AlignItem[
   const formData = new FormData();
   formData.append('audio', new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' }), 'audio.wav');
   formData.append('text', text);
-  formData.append('language', 'Chinese');
+  formData.append('language', 'auto');
 
   const response = await fetch(`${TTS_API_BASE}/api/asr/align`, {
     method: 'POST',
