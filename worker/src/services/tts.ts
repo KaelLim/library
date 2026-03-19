@@ -197,15 +197,19 @@ async function wavToMp3(wavBuffer: Buffer): Promise<Buffer> {
 /**
  * 呼叫 ASR forced-align API，回傳逐字時間戳
  */
-async function callAsrAlign(wavBuffer: Buffer, text: string): Promise<AlignItem[]> {
+async function callAsrAlign(wavBuffer: Buffer, text: string, onProgress?: TtsProgressCallback): Promise<AlignItem[]> {
+  const CHUNK_TIMEOUT_MS = 5 * 60 * 1000;
+
   const formData = new FormData();
   formData.append('audio', new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' }), 'audio.wav');
   formData.append('text', text);
   formData.append('language', 'auto');
 
+  const controller = new AbortController();
   const response = await fetch(`${TTS_API_BASE}/api/asr/align`, {
     method: 'POST',
     body: formData,
+    signal: controller.signal,
   });
 
   if (!response.ok) {
@@ -213,6 +217,63 @@ async function callAsrAlign(wavBuffer: Buffer, text: string): Promise<AlignItem[
     throw new Error(`ASR Align API error ${response.status}: ${errText}`);
   }
 
+  const contentType = response.headers.get('content-type') || '';
+
+  // SSE 串流回傳
+  if (contentType.includes('text/event-stream')) {
+    if (!response.body) {
+      throw new Error('ASR Align API returned no response body');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result: AlignResult | null = null;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const resetTimeout = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => controller.abort(), CHUNK_TIMEOUT_MS);
+    };
+
+    resetTimeout();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        resetTimeout();
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop()!;
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === 'status' && event.message) {
+              onProgress?.(event.message);
+            } else if (event.type === 'done' && event.items) {
+              result = event as AlignResult;
+            }
+          } catch {
+            // 跳過無法解析的行
+          }
+        }
+      }
+    } finally {
+      clearTimeout(timeoutId!);
+    }
+
+    if (!result) {
+      throw new Error('ASR Align API returned no result');
+    }
+    return result.items;
+  }
+
+  // 普通 JSON 回傳（向後相容）
   const result: AlignResult = await response.json();
   return result.items;
 }
@@ -308,7 +369,7 @@ export async function generateArticleAudio(
 
   // 4. ASR forced-align → SRT
   onProgress?.('生成字幕中...');
-  const alignItems = await callAsrAlign(wav, plainText);
+  const alignItems = await callAsrAlign(wav, plainText, onProgress);
   const srtContent = itemsToSrt(alignItems, plainText);
 
   // 5. 上傳到 Storage
