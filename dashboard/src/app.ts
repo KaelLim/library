@@ -5,6 +5,7 @@ import { Router } from '@vaadin/router';
 // Import components
 import './components/layout/tc-app-shell.js';
 import './components/ui/tc-toast.js';
+import './components/ui/tc-audio-banner.js';
 
 // Import pages (lazy loaded via router)
 import './pages/page-login.js';
@@ -182,6 +183,7 @@ export class TcApp extends LitElement {
     return html`
       <div id="outlet"></div>
       <tc-toast-container></tc-toast-container>
+      <tc-audio-banner></tc-audio-banner>
     `;
   }
 }
