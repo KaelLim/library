@@ -137,7 +137,9 @@ async function callTtsClone(text: string, onProgress?: TtsProgressCallback): Pro
         if (!line.startsWith('data: ')) continue;
         try {
           const event: TtsEvent = JSON.parse(line.slice(6));
-          if (event.type === 'queue' && event.message) {
+          if (event.type === 'status' && event.message) {
+            onProgress?.(event.message);
+          } else if (event.type === 'queue' && event.message) {
             onProgress?.(event.message);
           } else if (event.type === 'progress' && event.chunks && event.total_chunks) {
             onProgress?.(`生成中... ${event.chunks}/${event.total_chunks} 段`);
