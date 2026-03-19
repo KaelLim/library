@@ -78,6 +78,8 @@ export function stripMarkdownForTts(markdown: string): string {
  * 呼叫 TTS clone API（SSE 串流），使用固定參考音頻，回傳 WAV Buffer
  */
 async function callTtsClone(text: string, onProgress?: TtsProgressCallback): Promise<{ wav: Buffer; duration: number }> {
+  const CHUNK_TIMEOUT_MS = 5 * 60 * 1000; // 5 分鐘無新 chunk 就 abort
+
   const refAudio = await readFile(REF_AUDIO_PATH);
   const refText = (await readFile(REF_TEXT_PATH, 'utf-8')).trim();
 
@@ -86,9 +88,11 @@ async function callTtsClone(text: string, onProgress?: TtsProgressCallback): Pro
   formData.append('ref_audio', new Blob([new Uint8Array(refAudio)], { type: 'audio/mpeg' }), 'ref.mp3');
   formData.append('ref_text', refText);
 
+  const controller = new AbortController();
   const response = await fetch(`${TTS_API_BASE}/api/tts/clone`, {
     method: 'POST',
     body: formData,
+    signal: controller.signal,
   });
 
   if (!response.ok) {
@@ -96,24 +100,58 @@ async function callTtsClone(text: string, onProgress?: TtsProgressCallback): Pro
     throw new Error(`TTS Clone API error ${response.status}: ${errText}`);
   }
 
-  // 解析 SSE 串流
-  const body = await response.text();
-  const lines = body.split('\n');
+  if (!response.body) {
+    throw new Error('TTS Clone API returned no response body');
+  }
 
+  // 串流讀取 SSE
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
   let audioBase64 = '';
   let duration = 0;
+  let timeoutId: ReturnType<typeof setTimeout>;
 
-  for (const line of lines) {
-    if (!line.startsWith('data: ')) continue;
-    const event: TtsEvent = JSON.parse(line.slice(6));
-    if (event.type === 'queue' && event.message) {
-      onProgress?.(event.message);
-    } else if (event.type === 'progress' && event.chunks && event.total_chunks) {
-      onProgress?.(`生成中... ${event.chunks}/${event.total_chunks} 段`);
-    } else if (event.type === 'done' && event.audio) {
-      audioBase64 = event.audio;
-      duration = event.duration || 0;
+  const resetTimeout = () => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      controller.abort();
+    }, CHUNK_TIMEOUT_MS);
+  };
+
+  resetTimeout();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      resetTimeout();
+      buffer += decoder.decode(value, { stream: true });
+
+      // 逐行解析完整的 SSE event
+      const lines = buffer.split('\n');
+      buffer = lines.pop()!; // 最後一行可能不完整，留到下次
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event: TtsEvent = JSON.parse(line.slice(6));
+          if (event.type === 'queue' && event.message) {
+            onProgress?.(event.message);
+          } else if (event.type === 'progress' && event.chunks && event.total_chunks) {
+            onProgress?.(`生成中... ${event.chunks}/${event.total_chunks} 段`);
+          } else if (event.type === 'done' && event.audio) {
+            audioBase64 = event.audio;
+            duration = event.duration || 0;
+          }
+        } catch {
+          // 跳過無法解析的行（heartbeat 等）
+        }
+      }
     }
+  } finally {
+    clearTimeout(timeoutId!);
   }
 
   if (!audioBase64) {
