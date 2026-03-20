@@ -94,9 +94,41 @@ export class TcArticleCard extends LitElement {
       color: var(--color-text-secondary);
     }
 
-    .audio-player {
+    .audio-row {
       margin-top: var(--spacing-3);
-      padding: var(--spacing-3) var(--spacing-4);
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-2);
+    }
+
+    .audio-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--spacing-1);
+      padding: var(--spacing-1) var(--spacing-3);
+      font-size: var(--font-size-xs);
+      font-weight: var(--font-weight-medium);
+      color: var(--color-accent);
+      background: var(--color-accent-light);
+      border: none;
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .audio-chip:hover {
+      background: var(--color-accent);
+      color: #fff;
+    }
+
+    .audio-chip svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .player {
+      margin-top: var(--spacing-3);
+      padding: var(--spacing-3);
       background: var(--color-bg-surface);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-md);
@@ -105,59 +137,79 @@ export class TcArticleCard extends LitElement {
       gap: var(--spacing-3);
     }
 
-    .audio-player audio {
-      height: 36px;
-      flex: 1;
-      border-radius: var(--radius-sm);
-    }
-
-    /* 自訂 audio 控件配色 */
-    .audio-player audio::-webkit-media-controls-panel {
-      background: var(--color-bg-card);
-    }
-
-    .audio-player audio::-webkit-media-controls-current-time-display,
-    .audio-player audio::-webkit-media-controls-time-remaining-display {
-      color: var(--color-text-secondary);
-      font-size: var(--font-size-xs);
-    }
-
-    .play-btn {
-      display: inline-flex;
+    .player-btn {
+      width: 32px;
+      height: 32px;
+      display: flex;
       align-items: center;
-      gap: var(--spacing-1);
-      padding: var(--spacing-2) var(--spacing-3);
-      font-size: var(--font-size-xs);
-      font-weight: var(--font-weight-medium);
-      color: var(--color-accent);
-      background: var(--color-accent-light);
-      border: 1px solid transparent;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: all var(--transition-fast);
-    }
-
-    .play-btn:hover {
-      color: var(--color-text-primary);
+      justify-content: center;
       background: var(--color-accent);
+      border: none;
+      border-radius: var(--radius-full);
+      color: #fff;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background var(--transition-fast);
     }
 
-    .play-btn svg {
-      width: 14px;
-      height: 14px;
+    .player-btn:hover {
+      background: var(--color-accent-hover);
     }
 
-    .close-player {
+    .player-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .player-track {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .player-bar {
+      width: 100%;
+      height: 4px;
+      background: var(--color-bg-active);
+      border-radius: 2px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .player-bar:hover {
+      height: 6px;
+    }
+
+    .player-progress {
+      height: 100%;
+      background: var(--color-accent);
+      border-radius: 2px;
+      transition: width 0.1s linear;
+    }
+
+    .player-time {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--color-text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .player-close {
       background: none;
       border: none;
       color: var(--color-text-muted);
       cursor: pointer;
       padding: var(--spacing-1);
       border-radius: var(--radius-sm);
+      flex-shrink: 0;
       transition: color var(--transition-fast);
     }
 
-    .close-player:hover {
+    .player-close:hover {
       color: var(--color-text-primary);
     }
   `;
@@ -168,7 +220,11 @@ export class TcArticleCard extends LitElement {
 
   @state() private showPlayer = false;
   @state() private hasAudio = false;
+  @state() private isPlaying = false;
+  @state() private currentTime = 0;
+  @state() private duration = 0;
   private _checkedAudioFor = 0;
+  private _audio: HTMLAudioElement | null = null;
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -306,8 +362,8 @@ export class TcArticleCard extends LitElement {
   private renderPlayer() {
     if (!this.showPlayer) {
       return html`
-        <div class="audio-player">
-          <button class="play-btn" @click=${this.handlePlay}>
+        <div class="audio-row">
+          <button class="audio-chip" @click=${this.handlePlay}>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             試聽語音
           </button>
@@ -315,24 +371,102 @@ export class TcArticleCard extends LitElement {
       `;
     }
 
+    const pct = this.duration > 0 ? (this.currentTime / this.duration) * 100 : 0;
+
     return html`
-      <div class="audio-player">
-        <audio controls autoplay src=${this.getMp3Url()}></audio>
-        <button class="close-player" @click=${this.handleClosePlayer} title="關閉播放器">
+      <div class="player">
+        <button class="player-btn" @click=${this.togglePlay}>
+          ${this.isPlaying
+            ? html`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
+            : html`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`}
+        </button>
+        <div class="player-track">
+          <div class="player-bar" @click=${this.handleSeek}>
+            <div class="player-progress" style="width:${pct}%"></div>
+          </div>
+          <div class="player-time">
+            <span>${this.formatTime(this.currentTime)}</span>
+            <span>${this.formatTime(this.duration)}</span>
+          </div>
+        </div>
+        <button class="player-close" @click=${this.handleClosePlayer} title="關閉">
           <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
       </div>
     `;
   }
 
+  private formatTime(sec: number): string {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
   private handlePlay(e: Event): void {
     e.stopPropagation();
     this.showPlayer = true;
+    this.initAudio();
+  }
+
+  private togglePlay(e: Event): void {
+    e.stopPropagation();
+    if (!this._audio) return;
+    if (this.isPlaying) {
+      this._audio.pause();
+    } else {
+      this._audio.play();
+    }
+  }
+
+  private handleSeek(e: MouseEvent): void {
+    e.stopPropagation();
+    if (!this._audio || !this.duration) return;
+    const bar = e.currentTarget as HTMLElement;
+    const rect = bar.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    this._audio.currentTime = pct * this.duration;
+  }
+
+  private initAudio(): void {
+    this.destroyAudio();
+    const audio = new Audio(this.getMp3Url());
+    this._audio = audio;
+
+    audio.addEventListener('loadedmetadata', () => {
+      this.duration = audio.duration;
+    });
+    audio.addEventListener('timeupdate', () => {
+      this.currentTime = audio.currentTime;
+    });
+    audio.addEventListener('play', () => { this.isPlaying = true; });
+    audio.addEventListener('pause', () => { this.isPlaying = false; });
+    audio.addEventListener('ended', () => {
+      this.isPlaying = false;
+      this.currentTime = 0;
+    });
+    audio.play().catch(() => {});
+  }
+
+  private destroyAudio(): void {
+    if (this._audio) {
+      this._audio.pause();
+      this._audio.src = '';
+      this._audio = null;
+    }
+    this.isPlaying = false;
+    this.currentTime = 0;
+    this.duration = 0;
   }
 
   private handleClosePlayer(e: Event): void {
     e.stopPropagation();
+    this.destroyAudio();
     this.showPlayer = false;
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.destroyAudio();
   }
 
   private handlePush(e: Event): void {
