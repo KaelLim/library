@@ -212,6 +212,37 @@ export class TcArticleCard extends LitElement {
     .player-close:hover {
       color: var(--color-text-primary);
     }
+
+    .srt-box {
+      margin-top: var(--spacing-2);
+      max-height: 120px;
+      overflow-y: auto;
+      padding: var(--spacing-3);
+      background: var(--color-bg-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      font-size: var(--font-size-sm);
+      line-height: var(--line-height-relaxed);
+      color: var(--color-text-secondary);
+      scroll-behavior: smooth;
+    }
+
+    .srt-line {
+      padding: 2px var(--spacing-2);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .srt-line:hover {
+      background: var(--color-bg-hover);
+    }
+
+    .srt-line.active {
+      color: var(--color-accent);
+      font-weight: var(--font-weight-medium);
+      background: var(--color-accent-light);
+    }
   `;
 
   @property({ type: Object }) article!: ArticleWithCategory;
@@ -223,6 +254,8 @@ export class TcArticleCard extends LitElement {
   @state() private isPlaying = false;
   @state() private currentTime = 0;
   @state() private duration = 0;
+  @state() private srtCues: { start: number; end: number; text: string }[] = [];
+  @state() private activeCueIndex = -1;
   private _checkedAudioFor = 0;
   private _audio: HTMLAudioElement | null = null;
 
@@ -359,6 +392,61 @@ export class TcArticleCard extends LitElement {
     return `${SUPABASE_URL}/storage/v1/object/public/weekly/articles/${weekly_id}/mp3/${id}.mp3`;
   }
 
+  private getSrtUrl(): string {
+    const { weekly_id, id } = this.article;
+    return `${SUPABASE_URL}/storage/v1/object/public/weekly/articles/${weekly_id}/srt/${id}.srt`;
+  }
+
+  private parseSrt(text: string): { start: number; end: number; text: string }[] {
+    const blocks = text.trim().split(/\n\n+/);
+    const cues: { start: number; end: number; text: string }[] = [];
+    for (const block of blocks) {
+      const lines = block.split('\n');
+      if (lines.length < 3) continue;
+      const match = lines[1].match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+      if (!match) continue;
+      const start = +match[1] * 3600 + +match[2] * 60 + +match[3] + +match[4] / 1000;
+      const end = +match[5] * 3600 + +match[6] * 60 + +match[7] + +match[8] / 1000;
+      cues.push({ start, end, text: lines.slice(2).join(' ') });
+    }
+    return cues;
+  }
+
+  private async loadSrt(): Promise<void> {
+    try {
+      const res = await fetch(this.getSrtUrl());
+      if (res.ok) {
+        const text = await res.text();
+        this.srtCues = this.parseSrt(text);
+      }
+    } catch {
+      // SRT 不存在或載入失敗，不影響播放
+    }
+  }
+
+  private updateActiveCue(): void {
+    const t = this.currentTime;
+    const idx = this.srtCues.findIndex(c => t >= c.start && t < c.end);
+    if (idx !== this.activeCueIndex) {
+      this.activeCueIndex = idx;
+      // 自動捲動到 active cue
+      if (idx >= 0) {
+        this.updateComplete.then(() => {
+          const el = this.shadowRoot?.querySelector('.srt-line.active');
+          el?.scrollIntoView({ block: 'nearest' });
+        });
+      }
+    }
+  }
+
+  private handleCueClick(e: Event, cue: { start: number }): void {
+    e.stopPropagation();
+    if (this._audio) {
+      this._audio.currentTime = cue.start;
+      if (!this.isPlaying) this._audio.play();
+    }
+  }
+
   private renderPlayer() {
     if (!this.showPlayer) {
       return html`
@@ -393,6 +481,16 @@ export class TcArticleCard extends LitElement {
           <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
       </div>
+      ${this.srtCues.length > 0 ? html`
+        <div class="srt-box">
+          ${this.srtCues.map((cue, i) => html`
+            <div class="srt-line ${i === this.activeCueIndex ? 'active' : ''}"
+                 @click=${(e: Event) => this.handleCueClick(e, cue)}>
+              ${cue.text}
+            </div>
+          `)}
+        </div>
+      ` : nothing}
     `;
   }
 
@@ -437,14 +535,18 @@ export class TcArticleCard extends LitElement {
     });
     audio.addEventListener('timeupdate', () => {
       this.currentTime = audio.currentTime;
+      this.updateActiveCue();
     });
     audio.addEventListener('play', () => { this.isPlaying = true; });
     audio.addEventListener('pause', () => { this.isPlaying = false; });
     audio.addEventListener('ended', () => {
       this.isPlaying = false;
       this.currentTime = 0;
+      this.activeCueIndex = -1;
     });
     audio.play().catch(() => {});
+
+    this.loadSrt();
   }
 
   private destroyAudio(): void {
@@ -456,6 +558,8 @@ export class TcArticleCard extends LitElement {
     this.isPlaying = false;
     this.currentTime = 0;
     this.duration = 0;
+    this.srtCues = [];
+    this.activeCueIndex = -1;
   }
 
   private handleClosePlayer(e: Event): void {
