@@ -294,7 +294,26 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    return paginate(data || [], count || 0, limit, offset);
+    // 為 digital 文稿附加 mp3_url（批次 check Storage）
+    const articles = data || [];
+    if (weekly_id && articles.length > 0) {
+      const wid = parseInt(weekly_id, 10);
+      const { data: mp3Files } = await getSupabase().storage
+        .from('weekly')
+        .list(`articles/${wid}/mp3`);
+
+      if (mp3Files) {
+        const mp3Set = new Set(mp3Files.map(f => f.name));
+        const baseUrl = `${process.env.SUPABASE_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
+        for (const article of articles) {
+          if (mp3Set.has(`${article.id}.mp3`)) {
+            (article as any).mp3_url = `${baseUrl}/articles/${wid}/mp3/${article.id}.mp3`;
+          }
+        }
+      }
+    }
+
+    return paginate(articles, count || 0, limit, offset);
   });
 
   // GET /articles/:id - 單篇文章
@@ -326,6 +345,17 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         error: 'NOT_FOUND',
         message: `Article ${articleId} not found`,
       });
+    }
+
+    // 檢查 mp3 是否存在
+    const mp3Path = `articles/${data.weekly_id}/mp3/${data.id}.mp3`;
+    const { data: mp3Files } = await getSupabase().storage
+      .from('weekly')
+      .list(`articles/${data.weekly_id}/mp3`, { search: `${data.id}.mp3` });
+
+    if (mp3Files?.some(f => f.name === `${data.id}.mp3`)) {
+      const baseUrl = `${process.env.SUPABASE_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
+      (data as any).mp3_url = `${baseUrl}/${mp3Path}`;
     }
 
     return data;
