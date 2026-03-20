@@ -625,6 +625,7 @@ services:
     environment:
       PORT: "3001"
       SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       BOOKS_DIR: /app/books
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
