@@ -95,38 +95,70 @@ export class TcArticleCard extends LitElement {
     }
 
     .audio-player {
-      margin-top: 12px;
+      margin-top: var(--spacing-3);
+      padding: var(--spacing-3) var(--spacing-4);
+      background: var(--color-bg-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: var(--spacing-3);
     }
 
     .audio-player audio {
-      height: 32px;
+      height: 36px;
       flex: 1;
+      border-radius: var(--radius-sm);
+    }
+
+    /* 自訂 audio 控件配色 */
+    .audio-player audio::-webkit-media-controls-panel {
+      background: var(--color-bg-card);
+    }
+
+    .audio-player audio::-webkit-media-controls-current-time-display,
+    .audio-player audio::-webkit-media-controls-time-remaining-display {
+      color: var(--color-text-secondary);
+      font-size: var(--font-size-xs);
     }
 
     .play-btn {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      padding: 4px 10px;
-      font-size: 12px;
-      color: var(--color-text-muted);
-      background: transparent;
-      border: 1px solid var(--color-border);
-      border-radius: 4px;
+      gap: var(--spacing-1);
+      padding: var(--spacing-2) var(--spacing-3);
+      font-size: var(--font-size-xs);
+      font-weight: var(--font-weight-medium);
+      color: var(--color-accent);
+      background: var(--color-accent-light);
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
       cursor: pointer;
+      transition: all var(--transition-fast);
     }
 
     .play-btn:hover {
       color: var(--color-text-primary);
-      background: var(--color-bg-hover);
+      background: var(--color-accent);
     }
 
     .play-btn svg {
-      width: 12px;
-      height: 12px;
+      width: 14px;
+      height: 14px;
+    }
+
+    .close-player {
+      background: none;
+      border: none;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      padding: var(--spacing-1);
+      border-radius: var(--radius-sm);
+      transition: color var(--transition-fast);
+    }
+
+    .close-player:hover {
+      color: var(--color-text-primary);
     }
   `;
 
@@ -277,7 +309,7 @@ export class TcArticleCard extends LitElement {
         <div class="audio-player">
           <button class="play-btn" @click=${this.handlePlay}>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            試聽
+            試聽語音
           </button>
         </div>
       `;
@@ -286,6 +318,9 @@ export class TcArticleCard extends LitElement {
     return html`
       <div class="audio-player">
         <audio controls autoplay src=${this.getMp3Url()}></audio>
+        <button class="close-player" @click=${this.handleClosePlayer} title="關閉播放器">
+          <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
       </div>
     `;
   }
@@ -293,6 +328,11 @@ export class TcArticleCard extends LitElement {
   private handlePlay(e: Event): void {
     e.stopPropagation();
     this.showPlayer = true;
+  }
+
+  private handleClosePlayer(e: Event): void {
+    e.stopPropagation();
+    this.showPlayer = false;
   }
 
   private handlePush(e: Event): void {
