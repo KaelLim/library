@@ -304,7 +304,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
       if (mp3Files) {
         const mp3Set = new Set(mp3Files.map(f => f.name));
-        const baseUrl = `${process.env.SUPABASE_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
+        const baseUrl = `${process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
         for (const article of articles) {
           if (mp3Set.has(`${article.id}.mp3`)) {
             (article as any).mp3_url = `${baseUrl}/articles/${wid}/mp3/${article.id}.mp3`;
@@ -354,7 +354,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       .list(`articles/${data.weekly_id}/mp3`, { search: `${data.id}.mp3` });
 
     if (mp3Files?.some(f => f.name === `${data.id}.mp3`)) {
-      const baseUrl = `${process.env.SUPABASE_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
+      const baseUrl = `${process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
       (data as any).mp3_url = `${baseUrl}/${mp3Path}`;
     }
 
