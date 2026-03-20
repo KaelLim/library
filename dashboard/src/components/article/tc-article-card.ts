@@ -135,6 +135,35 @@ export class TcArticleCard extends LitElement {
   @property({ type: Boolean }) showAudio = false;
 
   @state() private showPlayer = false;
+  @state() private hasAudio = false;
+  private _checkedAudioFor = 0;
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.checkAudio();
+  }
+
+  updated(changed: Map<string, unknown>): void {
+    if (changed.has('article') && this.article?.id !== this._checkedAudioFor) {
+      this.hasAudio = false;
+      this.showPlayer = false;
+      this.checkAudio();
+    }
+  }
+
+  private async checkAudio(): Promise<void> {
+    if (!this.showAudio || !this.article) return;
+    const id = this.article.id;
+    this._checkedAudioFor = id;
+    try {
+      const res = await fetch(this.getMp3Url(), { method: 'HEAD' });
+      if (this.article.id === id) {
+        this.hasAudio = res.ok;
+      }
+    } catch {
+      // 網路錯誤，不顯示
+    }
+  }
 
   private stripMarkdown(content: string): string {
     return content
@@ -214,7 +243,7 @@ export class TcArticleCard extends LitElement {
           </div>
         </div>
         <p class="content">${this.getPreview(content)}</p>
-        ${this.showAudio ? this.renderPlayer() : nothing}
+        ${this.hasAudio ? this.renderPlayer() : nothing}
       </div>
     `;
   }
