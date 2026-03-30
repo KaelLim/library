@@ -1,7 +1,7 @@
 import { join } from 'path';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { downloadFile, listImagesRecursive, type DriveFile } from './google-drive.js';
+import { runSessionWithStreaming } from './session-streamer.js';
 import { getSupabase, uploadImage } from './supabase.js';
 import { compressImage } from './image-compressor.js';
 
@@ -133,19 +133,12 @@ Rules:
 - If no match exists, omit that image
 - Each Drive image can only match one Storage image`;
 
-    let result = '';
-    for await (const msg of query({
-      prompt,
-      options: {
-        model: 'claude-sonnet-4-20250514',
-        maxTurns: 30,
-        allowedTools: ['Read', 'Glob'],
-      },
-    })) {
-      if (msg.type === 'result' && (msg as any).subtype === 'success') {
-        result = (msg as any).result;
-      }
-    }
+    const result = await runSessionWithStreaming(prompt, {
+      weeklyId,
+      model: 'claude-sonnet-4-20250514',
+      maxTurns: 30,
+      allowedTools: ['Read', 'Glob'],
+    });
 
     console.log('[ImageMatcher] AI result length:', result.length);
     console.log('[ImageMatcher] AI result preview:', result.substring(0, 300));

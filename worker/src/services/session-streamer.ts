@@ -24,6 +24,7 @@ export interface SessionStreamOptions {
   weeklyId: number;
   model?: string;
   allowedTools?: string[];
+  maxTurns?: number; // Claude 最多來回幾次，預設 1
   chunkSize?: number; // 每多少字元廣播一次，預設 100
 }
 
@@ -96,6 +97,7 @@ export async function runSessionWithStreaming(
     weeklyId,
     model = 'claude-sonnet-4-20250514',
     allowedTools = [],
+    maxTurns = 1,
     chunkSize = 100,
   } = options;
 
@@ -152,7 +154,7 @@ export async function runSessionWithStreaming(
       options: {
         model,
         allowedTools,
-        maxTurns: 1,
+        maxTurns,
         includePartialMessages: true, // 關鍵！啟用 token-level streaming
       },
     })) {
