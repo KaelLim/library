@@ -43,7 +43,7 @@ export async function getBookCategories(): Promise<BookCategory[]> {
   const { data, error } = await supabase
     .from('books_category')
     .select('*')
-    .order('id');
+    .order('sort_order');
 
   if (error) throw error;
   return data || [];
@@ -59,7 +59,7 @@ export async function getBookList(categoryId?: number): Promise<BookWithCategory
       *,
       category:books_category(*)
     `)
-    .order('created_at', { ascending: false });
+    .order('publish_date', { ascending: false });
 
   if (categoryId) {
     query = query.eq('category_id', categoryId);

@@ -405,7 +405,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     let query = getSupabase()
       .from('books')
       .select('*, category:category_id(*)', { count: 'exact' })
-      .order('created_at', { ascending: false })
+      .order('publish_date', { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (category_id) query = query.eq('category_id', parseInt(category_id, 10));
