@@ -8,11 +8,13 @@ import { requireAuth } from '../middleware/auth.js';
 const PUBLIC_BASE = process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000';
 
 /** 將相對路徑轉為完整公開 URL，已是完整 URL 的不動 */
-function toPublicUrl(path: string | null | undefined): string | null {
+function toPublicUrl(path: string | null | undefined, bucket?: string): string | null {
   if (!path) return null;
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
   if (path.startsWith('/')) return `${PUBLIC_BASE}${path}`;
-  return `${PUBLIC_BASE}/storage/v1/object/public/${path}`;
+  // 相對路徑：需要加上 bucket 名稱
+  const bucketPrefix = bucket ? `${bucket}/` : '';
+  return `${PUBLIC_BASE}/storage/v1/object/public/${bucketPrefix}${path}`;
 }
 
 const paginationQueryProps = {
@@ -425,8 +427,8 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
     const books = (data || []).map((b: any) => ({
       ...b,
-      pdf_path: toPublicUrl(b.pdf_path),
-      thumbnail_url: toPublicUrl(b.thumbnail_url),
+      pdf_path: toPublicUrl(b.pdf_path, 'books'),
+      thumbnail_url: toPublicUrl(b.thumbnail_url, 'books'),
     }));
 
     return paginate(books, count || 0, limit, offset);
@@ -465,8 +467,8 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
     return {
       ...data,
-      pdf_path: toPublicUrl(data.pdf_path),
-      thumbnail_url: toPublicUrl(data.thumbnail_url),
+      pdf_path: toPublicUrl(data.pdf_path, 'books'),
+      thumbnail_url: toPublicUrl(data.thumbnail_url, 'books'),
     };
   });
 
