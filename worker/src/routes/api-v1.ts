@@ -5,6 +5,16 @@ import { getSupabase, insertAuditLog } from '../services/supabase.js';
 import { subscribeToken, unsubscribeToken, sendPushNotification } from '../services/push-notification.js';
 import { requireAuth } from '../middleware/auth.js';
 
+const PUBLIC_BASE = process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000';
+
+/** 將相對路徑轉為完整公開 URL，已是完整 URL 的不動 */
+function toPublicUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  if (path.startsWith('/')) return `${PUBLIC_BASE}${path}`;
+  return `${PUBLIC_BASE}/storage/v1/object/public/${path}`;
+}
+
 const paginationQueryProps = {
   limit: { type: 'string', description: '每頁筆數 (max 100, default 20)' },
   offset: { type: 'string', description: '起始位置 (default 0)' },
@@ -304,7 +314,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
       if (mp3Files) {
         const mp3Set = new Set(mp3Files.map(f => f.name));
-        const baseUrl = `${process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
+        const baseUrl = `${PUBLIC_BASE}/storage/v1/object/public/weekly`;
         for (const article of articles) {
           if (mp3Set.has(`${article.id}.mp3`)) {
             (article as any).mp3_url = `${baseUrl}/articles/${wid}/mp3/${article.id}.mp3`;
@@ -354,7 +364,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       .list(`articles/${data.weekly_id}/mp3`, { search: `${data.id}.mp3` });
 
     if (mp3Files?.some(f => f.name === `${data.id}.mp3`)) {
-      const baseUrl = `${process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000'}/storage/v1/object/public/weekly`;
+      const baseUrl = `${PUBLIC_BASE}/storage/v1/object/public/weekly`;
       (data as any).mp3_url = `${baseUrl}/${mp3Path}`;
     }
 
@@ -413,7 +423,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    return paginate(data || [], count || 0, limit, offset);
+    const books = (data || []).map((b: any) => ({
+      ...b,
+      pdf_path: toPublicUrl(b.pdf_path),
+      thumbnail_url: toPublicUrl(b.thumbnail_url),
+    }));
+
+    return paginate(books, count || 0, limit, offset);
   });
 
   // GET /books/:id - 單本電子書
@@ -447,7 +463,11 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    return data;
+    return {
+      ...data,
+      pdf_path: toPublicUrl(data.pdf_path),
+      thumbnail_url: toPublicUrl(data.thumbnail_url),
+    };
   });
 
   // GET /categories - 週報文章分類
