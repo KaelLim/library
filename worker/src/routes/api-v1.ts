@@ -429,6 +429,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       ...b,
       pdf_path: toPublicUrl(b.pdf_path, 'books'),
       thumbnail_url: toPublicUrl(b.thumbnail_url, 'books'),
+      reader_url: b.book_id ? `${PUBLIC_BASE}/books/r/${b.book_id}` : null,
     }));
 
     return paginate(books, count || 0, limit, offset);
@@ -469,6 +470,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       ...data,
       pdf_path: toPublicUrl(data.pdf_path, 'books'),
       thumbnail_url: toPublicUrl(data.thumbnail_url, 'books'),
+      reader_url: data.book_id ? `${PUBLIC_BASE}/books/r/${data.book_id}` : null,
     };
   });
 
