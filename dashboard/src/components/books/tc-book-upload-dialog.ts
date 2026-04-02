@@ -3,6 +3,7 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import type { BookCategory } from '../../services/books.js';
 import { getBookCategories } from '../../services/books.js';
 import { toastStore } from '../../stores/toast-store.js';
+import { authStore } from '../../stores/auth-store.js';
 import '../ui/tc-dialog.js';
 import '../ui/tc-button.js';
 import '../ui/tc-spinner.js';
@@ -704,10 +705,12 @@ export class TcBookUploadDialog extends LitElement {
       this.uploadStep = '壓縮 PDF 中...';
 
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+      const token = authStore.session?.access_token || '';
       const response = await fetch('/worker/books/create', {
         method: 'POST',
         headers: {
           'apikey': anonKey,
+          'Authorization': `Bearer ${token}`,
         },
         body: formData,
       });

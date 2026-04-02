@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js';
+import { authStore } from '../stores/auth-store.js';
 
 export interface BookCategory {
   id: number;
@@ -96,11 +97,13 @@ export async function getBook(id: number): Promise<BookWithCategory | null> {
  */
 export async function updateBook(id: number, updates: Partial<Omit<Book, 'id' | 'created_at' | 'updated_at'>>): Promise<Book> {
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const token = authStore.session?.access_token || '';
   const response = await fetch(`/worker/books/${id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       'apikey': anonKey,
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify(updates),
   });
