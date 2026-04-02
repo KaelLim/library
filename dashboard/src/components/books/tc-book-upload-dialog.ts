@@ -703,8 +703,12 @@ export class TcBookUploadDialog extends LitElement {
 
       this.uploadStep = '壓縮 PDF 中...';
 
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
       const response = await fetch('/worker/books/create', {
         method: 'POST',
+        headers: {
+          'apikey': anonKey,
+        },
         body: formData,
       });
 

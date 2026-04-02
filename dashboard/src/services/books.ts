@@ -95,10 +95,12 @@ export async function getBook(id: number): Promise<BookWithCategory | null> {
  * 更新書籍（透過 Worker API）
  */
 export async function updateBook(id: number, updates: Partial<Omit<Book, 'id' | 'created_at' | 'updated_at'>>): Promise<Book> {
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
   const response = await fetch(`/worker/books/${id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
+      'apikey': anonKey,
     },
     body: JSON.stringify(updates),
   });
