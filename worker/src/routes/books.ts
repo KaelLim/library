@@ -17,7 +17,7 @@ import {
   insertAuditLog,
   broadcastBookUploadProgress,
 } from '../services/supabase.js';
-import { compressPdf, extractPdfThumbnail, isGhostscriptAvailable } from '../services/pdf-compressor.js';
+import { compressPdf, extractPdfThumbnail, isQpdfAvailable } from '../services/pdf-compressor.js';
 
 export const bookRoutes: FastifyPluginAsync = async (fastify) => {
   // 取得所有電子書分類
@@ -267,16 +267,15 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // 檢查 PDF 壓縮功能狀態
+  // 檢查 PDF 優化功能狀態
   fastify.get('/compression-status', async () => {
-    const gsAvailable = await isGhostscriptAvailable();
+    const qpdfAvailable = await isQpdfAvailable();
     return {
       success: true,
-      ghostscript_available: gsAvailable,
-      compression_enabled: gsAvailable,
-      quality_options: ['screen', 'ebook', 'printer', 'prepress'],
-      recommended: 'ebook',
-      note: gsAvailable ? 'PDF 壓縮功能正常' : '需要安裝 Ghostscript 才能啟用壓縮功能',
+      qpdf_available: qpdfAvailable,
+      compression_enabled: qpdfAvailable,
+      method: 'qpdf (lossless)',
+      note: qpdfAvailable ? 'PDF 無損優化功能正常' : '需要安裝 qpdf 才能啟用優化功能',
     };
   });
 

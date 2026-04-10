@@ -6,34 +6,24 @@ import { randomUUID } from 'crypto';
 
 export interface CompressionOptions {
   /**
-   * 壓縮品質等級
-   * - 'screen': 最小檔案，72 dpi（適合螢幕瀏覽）
-   * - 'ebook': 中等品質，150 dpi（適合電子書，推薦）
-   * - 'printer': 高品質，300 dpi（適合列印）
-   * - 'prepress': 最高品質，300 dpi（適合印刷出版）
+   * 壓縮品質等級（保留介面相容性，qpdf 無損優化不區分品質）
    */
   quality?: 'screen' | 'ebook' | 'printer' | 'prepress';
-
-  /**
-   * 圖片 DPI（覆蓋 quality 預設值）
-   */
-  imageDpi?: number;
-
-  /**
-   * 是否保留可搜尋文字
-   */
-  preserveText?: boolean;
 }
 
-const QUALITY_SETTINGS = {
-  screen: { dpi: 72, colorImageResolution: 72 },
-  ebook: { dpi: 150, colorImageResolution: 150 },
-  printer: { dpi: 300, colorImageResolution: 300 },
-  prepress: { dpi: 300, colorImageResolution: 300 },
-};
+/**
+ * 檢查 qpdf 是否可用
+ */
+export async function isQpdfAvailable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const proc = spawn('qpdf', ['--version']);
+    proc.on('error', () => resolve(false));
+    proc.on('close', (code) => resolve(code === 0));
+  });
+}
 
 /**
- * 檢查 Ghostscript 是否可用
+ * 檢查 Ghostscript 是否可用（用於縮圖擷取）
  */
 export async function isGhostscriptAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -44,29 +34,19 @@ export async function isGhostscriptAvailable(): Promise<boolean> {
 }
 
 /**
- * 使用 Ghostscript 壓縮 PDF
+ * 使用 qpdf 無損優化 PDF
+ * - 不會重新編碼內容，排版零風險
+ * - 壓縮串流、移除冗餘物件、線性化（web 快速載入）
  */
 export async function compressPdf(
   pdfBuffer: Buffer,
-  options: CompressionOptions = {}
+  _options: CompressionOptions = {}
 ): Promise<{ buffer: Buffer; originalSize: number; compressedSize: number; ratio: number }> {
   const originalSize = pdfBuffer.length;
-  const quality = options.quality || 'ebook';
-  const VALID_QUALITIES = ['screen', 'ebook', 'printer', 'prepress'] as const;
-  if (!VALID_QUALITIES.includes(quality as any)) {
-    throw new Error(`Invalid quality: ${quality}. Must be one of: ${VALID_QUALITIES.join(', ')}`);
-  }
-  const settings = QUALITY_SETTINGS[quality];
-  const dpi = options.imageDpi || settings.dpi;
-  if (dpi < 50 || dpi > 600) {
-    throw new Error(`Invalid DPI: ${dpi}. Must be between 50 and 600`);
-  }
 
-  // 檢查 Ghostscript 是否可用
-  const gsAvailable = await isGhostscriptAvailable();
-
-  if (!gsAvailable) {
-    console.log('[PDF Compressor] Ghostscript not available, returning original PDF');
+  const qpdfAvailable = await isQpdfAvailable();
+  if (!qpdfAvailable) {
+    console.log('[PDF Compressor] qpdf not available, returning original PDF');
     return {
       buffer: pdfBuffer,
       originalSize,
@@ -75,76 +55,57 @@ export async function compressPdf(
     };
   }
 
-  // 建立暫存目錄
   const tempDir = await mkdtemp(join(tmpdir(), 'pdf-compress-'));
   const inputPath = join(tempDir, `input-${randomUUID()}.pdf`);
   const outputPath = join(tempDir, `output-${randomUUID()}.pdf`);
 
   try {
-    // 寫入輸入檔案
     await writeFile(inputPath, pdfBuffer);
 
-    // Ghostscript 參數
-    const gsArgs = [
-      '-sDEVICE=pdfwrite',
-      '-dCompatibilityLevel=1.4',
-      `-dPDFSETTINGS=/${quality}`,
-      '-dNOPAUSE',
-      '-dQUIET',
-      '-dBATCH',
-      // 圖片壓縮設定
-      '-dColorImageDownsampleType=/Bicubic',
-      `-dColorImageResolution=${dpi}`,
-      '-dGrayImageDownsampleType=/Bicubic',
-      `-dGrayImageResolution=${dpi}`,
-      '-dMonoImageDownsampleType=/Bicubic',
-      `-dMonoImageResolution=${dpi}`,
-      // 保留文字可搜尋
-      '-dEmbedAllFonts=true',
-      '-dSubsetFonts=true',
-      // 輸出
-      `-sOutputFile=${outputPath}`,
+    const qpdfArgs = [
+      '--linearize',
+      '--compress-streams=y',
+      '--recompress-flate',
+      '--object-streams=generate',
       inputPath,
+      outputPath,
     ];
 
-    console.log(`[PDF Compressor] Compressing with quality="${quality}", dpi=${dpi}`);
+    console.log('[PDF Compressor] Optimizing with qpdf (lossless)...');
 
-    // 執行 Ghostscript
     await new Promise<void>((resolve, reject) => {
-      const gs = spawn('gs', gsArgs);
+      const proc = spawn('qpdf', qpdfArgs);
 
       let stderr = '';
-      gs.stderr.on('data', (data) => {
+      proc.stderr.on('data', (data) => {
         stderr += data.toString();
       });
 
-      gs.on('error', (err) => {
-        reject(new Error(`Ghostscript error: ${err.message}`));
+      proc.on('error', (err) => {
+        reject(new Error(`qpdf error: ${err.message}`));
       });
 
-      gs.on('close', (code) => {
+      proc.on('close', (code) => {
         if (code === 0) {
           resolve();
         } else {
-          reject(new Error(`Ghostscript exited with code ${code}: ${stderr}`));
+          reject(new Error(`qpdf exited with code ${code}: ${stderr}`));
         }
       });
     });
 
-    // 讀取壓縮後的檔案
     const compressedBuffer = await readFile(outputPath);
     const compressedSize = compressedBuffer.length;
     const ratio = compressedSize / originalSize;
 
     console.log(
       `[PDF Compressor] Original: ${formatBytes(originalSize)}, ` +
-      `Compressed: ${formatBytes(compressedSize)}, ` +
+      `Optimized: ${formatBytes(compressedSize)}, ` +
       `Ratio: ${(ratio * 100).toFixed(1)}%`
     );
 
-    // 如果壓縮後反而更大，返回原始檔案
     if (compressedSize >= originalSize) {
-      console.log('[PDF Compressor] Compressed file is larger, using original');
+      console.log('[PDF Compressor] Optimized file is larger, using original');
       return {
         buffer: pdfBuffer,
         originalSize,
@@ -160,13 +121,8 @@ export async function compressPdf(
       ratio,
     };
   } finally {
-    // 清理暫存檔案
-    try {
-      await unlink(inputPath).catch(() => {});
-      await unlink(outputPath).catch(() => {});
-    } catch {
-      // 忽略清理錯誤
-    }
+    await unlink(inputPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
   }
 }
 
@@ -240,17 +196,9 @@ export async function extractPdfThumbnail(
 }
 
 /**
- * 快速壓縮（適合電子書）
+ * 無損優化 PDF（統一入口）
  */
-export async function compressPdfForEbook(pdfBuffer: Buffer): Promise<Buffer> {
-  const result = await compressPdf(pdfBuffer, { quality: 'ebook' });
-  return result.buffer;
-}
-
-/**
- * 高品質壓縮（適合列印）
- */
-export async function compressPdfHighQuality(pdfBuffer: Buffer): Promise<Buffer> {
-  const result = await compressPdf(pdfBuffer, { quality: 'printer' });
+export async function optimizePdf(pdfBuffer: Buffer): Promise<Buffer> {
+  const result = await compressPdf(pdfBuffer);
   return result.buffer;
 }

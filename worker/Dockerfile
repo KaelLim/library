@@ -2,10 +2,12 @@ FROM node:20-slim
 
 # Install system dependencies
 # - curl: for Claude Code installation
-# - ghostscript: for PDF compression
+# - qpdf: for lossless PDF optimization (no re-rendering, preserves layout)
+# - ghostscript: for PDF thumbnail extraction (page rendering)
 # - ffmpeg: for WAV to MP3 conversion (TTS audio)
 RUN apt-get update && apt-get install -y \
     curl \
+    qpdf \
     ghostscript \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
