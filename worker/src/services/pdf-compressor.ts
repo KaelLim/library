@@ -23,13 +23,13 @@ export async function isQpdfAvailable(): Promise<boolean> {
 }
 
 /**
- * 檢查 Ghostscript 是否可用（用於縮圖擷取）
+ * 檢查 pdftoppm (poppler-utils) 是否可用（用於縮圖擷取）
  */
-export async function isGhostscriptAvailable(): Promise<boolean> {
+export async function isPdftoppmAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
-    const gs = spawn('gs', ['--version']);
-    gs.on('error', () => resolve(false));
-    gs.on('close', (code) => resolve(code === 0));
+    const proc = spawn('pdftoppm', ['-v']);
+    proc.on('error', () => resolve(false));
+    proc.on('close', (code) => resolve(code === 0));
   });
 }
 
@@ -136,7 +136,7 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * 從 PDF 第一頁擷取 JPEG 縮圖
+ * 從 PDF 第一頁擷取 JPEG 縮圖（使用 pdftoppm）
  */
 export async function extractPdfThumbnail(
   pdfBuffer: Buffer,
@@ -145,44 +145,44 @@ export async function extractPdfThumbnail(
   const dpi = options.dpi || 150;
   const jpegQ = options.quality || 85;
 
-  const gsAvailable = await isGhostscriptAvailable();
-  if (!gsAvailable) {
-    console.warn('[PDF Thumbnail] Ghostscript not available');
+  const available = await isPdftoppmAvailable();
+  if (!available) {
+    console.warn('[PDF Thumbnail] pdftoppm not available');
     return null;
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'pdf-thumb-'));
   const inputPath = join(tempDir, `input-${randomUUID()}.pdf`);
-  const outputPath = join(tempDir, `thumb-${randomUUID()}.jpg`);
+  // pdftoppm appends page number: outputPrefix-01.jpg
+  const outputPrefix = join(tempDir, 'thumb');
 
   try {
     await writeFile(inputPath, pdfBuffer);
 
-    const gsArgs = [
-      '-dFirstPage=1',
-      '-dLastPage=1',
-      '-sDEVICE=jpeg',
-      `-dJPEGQ=${jpegQ}`,
-      `-r${dpi}`,
-      '-dNOPAUSE',
-      '-dQUIET',
-      '-dBATCH',
-      '-dSAFER',
-      `-sOutputFile=${outputPath}`,
+    const args = [
+      '-jpeg',
+      '-jpegopt', `quality=${jpegQ}`,
+      '-r', String(dpi),
+      '-f', '1',
+      '-l', '1',
+      '-singlefile',
       inputPath,
+      outputPrefix,
     ];
 
     await new Promise<void>((resolve, reject) => {
-      const gs = spawn('gs', gsArgs);
+      const proc = spawn('pdftoppm', args);
       let stderr = '';
-      gs.stderr.on('data', (data) => { stderr += data.toString(); });
-      gs.on('error', (err) => reject(new Error(`Ghostscript error: ${err.message}`)));
-      gs.on('close', (code) => {
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+      proc.on('error', (err) => reject(new Error(`pdftoppm error: ${err.message}`)));
+      proc.on('close', (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`Ghostscript exited with code ${code}: ${stderr}`));
+        else reject(new Error(`pdftoppm exited with code ${code}: ${stderr}`));
       });
     });
 
+    // -singlefile 模式輸出: thumb.jpg
+    const outputPath = `${outputPrefix}.jpg`;
     const thumbBuffer = await readFile(outputPath);
     console.log(`[PDF Thumbnail] Generated: ${formatBytes(thumbBuffer.length)}`);
     return thumbBuffer;
@@ -191,7 +191,7 @@ export async function extractPdfThumbnail(
     return null;
   } finally {
     await unlink(inputPath).catch(() => {});
-    await unlink(outputPath).catch(() => {});
+    await unlink(`${outputPrefix}.jpg`).catch(() => {});
   }
 }
 
