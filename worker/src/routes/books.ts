@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { requireAuth } from '../middleware/auth.js';
+import { randomUUID } from 'node:crypto';
 import {
   getBooksCategories,
   getBooksCategoryBySlug,
@@ -14,6 +15,7 @@ import {
   getBooksWithoutThumbnail,
   downloadBookPdf,
   insertAuditLog,
+  broadcastBookUploadProgress,
 } from '../services/supabase.js';
 import { compressPdf, extractPdfThumbnail, isGhostscriptAvailable } from '../services/pdf-compressor.js';
 
@@ -54,165 +56,179 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
     return { success: true, book };
   });
 
-  // 創建電子書（上傳 PDF + 資料庫）
+  // 創建電子書（非同步 202 模式：接收檔案後背景處理）
   fastify.post('/create', { preHandler: [requireAuth], config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (request, reply) => {
-    try {
-      const data = await request.file();
+    // --- 同步部分：驗證 + 讀取檔案 → 立即回 202 ---
+    const data = await request.file();
 
-      if (!data) {
-        return reply.status(400).send({
-          error: 'MISSING_FILE',
-          message: 'PDF file is required',
-        });
-      }
-
-      // Get form fields
-      const fields: Record<string, string> = {};
-      for (const [key, value] of Object.entries(data.fields)) {
-        if (key === 'pdf_file') continue;
-        if (value && typeof value === 'object' && 'value' in value) {
-          fields[key] = (value as { value: string }).value;
-        } else if (typeof value === 'string') {
-          fields[key] = value;
-        } else if (Array.isArray(value) && value.length > 0) {
-          const firstValue = value[0] as { value?: string };
-          if (typeof firstValue === 'object' && firstValue.value) {
-            fields[key] = firstValue.value;
-          }
-        }
-      }
-
-      const title = fields.title;
-      if (!title) {
-        return reply.status(400).send({
-          error: 'MISSING_TITLE',
-          message: 'title is required',
-        });
-      }
-
-      // Read file buffer
-      const chunks: Buffer[] = [];
-      for await (const chunk of data.file) {
-        chunks.push(chunk);
-      }
-      const rawPdfBuffer = Buffer.concat(chunks);
-
-      // Validate PDF magic bytes
-      if (rawPdfBuffer.length < 4 || rawPdfBuffer.toString('ascii', 0, 4) !== '%PDF') {
-        return reply.status(400).send({
-          error: 'INVALID_PDF',
-          message: '上傳的檔案不是有效的 PDF',
-        });
-      }
-
-      // 0. 壓縮 PDF
-      const compressionQuality = (fields.compression_quality as 'screen' | 'ebook' | 'printer' | 'prepress') || 'ebook';
-      const skipCompression = fields.skip_compression === 'true';
-
-      let pdfBuffer: Buffer = rawPdfBuffer;
-      let compressionInfo: { originalSize: number; compressedSize: number; ratio: number } | null = null;
-
-      if (!skipCompression) {
-        console.log('[Books] Compressing PDF...');
-        const compressed = await compressPdf(rawPdfBuffer, { quality: compressionQuality });
-        pdfBuffer = Buffer.from(compressed.buffer);
-        compressionInfo = {
-          originalSize: compressed.originalSize,
-          compressedSize: compressed.compressedSize,
-          ratio: compressed.ratio,
-        };
-        console.log(`[Books] Compression: ${(compressed.originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressed.compressedSize / 1024 / 1024).toFixed(2)}MB (${(compressed.ratio * 100).toFixed(1)}%)`);
-      }
-
-      // 1. 上傳 PDF 到 Supabase Storage
-      console.log('[Books] Uploading PDF to storage...');
-      const storageResult = await uploadBookPdf(pdfBuffer, data.filename);
-      console.log(`[Books] PDF uploaded: ${storageResult.path}`);
-
-      // 1.5 擷取第一頁縮圖
-      let thumbnailUrl = fields.thumbnail_url || null;
-      if (!thumbnailUrl) {
-        const uuid = storageResult.path.replace(/^books\//, '').replace(/\.pdf$/, '');
-        const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
-        if (thumbBuffer) {
-          thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
-          console.log(`[Books] Thumbnail generated: ${thumbnailUrl}`);
-        }
-      }
-
-      // 2. 取得分類資訊
-      let categoryId: number | undefined;
-      if (fields.category_id) {
-        categoryId = parseInt(fields.category_id, 10);
-      } else if (fields.category_slug) {
-        const category = await getBooksCategoryBySlug(fields.category_slug);
-        if (category) {
-          categoryId = category.id;
-        }
-      }
-
-      // 3. 寫入資料庫
-      const book = await insertBook({
-        category_id: categoryId || null,
-        book_id: storageResult.uuid,
-        title,
-        introtext: fields.introtext || fields.description || null,
-        catalogue: fields.catalogue || null,
-        author: fields.author || null,
-        author_introtext: fields.author_introtext || null,
-        publisher: fields.publisher || null,
-        book_date: fields.book_date || null,
-        isbn: fields.isbn || null,
-        pdf_path: storageResult.path,
-        thumbnail_url: thumbnailUrl,
-        language: fields.language || 'zh-TW',
-        turn_page: (fields.turn_page as 'left' | 'right') || 'left',
-        copyright: fields.copyright || null,
-        download: fields.download !== 'false',
-        online_purchase: fields.online_purchase || null,
-        publish_date: fields.publish_date || null,
-      });
-
-      console.log(`[Books] Book record created: ${book.id}`);
-
-      // 4. 記錄 audit log
-      await insertAuditLog({
-        user_email: fields.user_email || null,
-        action: 'create_book',
-        table_name: 'books',
-        record_id: book.id,
-        old_data: null,
-        new_data: { title },
-        metadata: {
-          pdf_path: storageResult.path,
-          compression: compressionInfo,
-        },
-      });
-
-      return {
-        success: true,
-        message: '電子書創建成功',
-        book: {
-          id: book.id,
-          book_id: book.book_id,
-          title: book.title,
-          thumbnail_url: book.thumbnail_url,
-          pdf_path: book.pdf_path,
-        },
-        compression: compressionInfo ? {
-          original_size: compressionInfo.originalSize,
-          compressed_size: compressionInfo.compressedSize,
-          ratio: `${(compressionInfo.ratio * 100).toFixed(1)}%`,
-          saved: `${((1 - compressionInfo.ratio) * 100).toFixed(1)}%`,
-        } : null,
-      };
-    } catch (error) {
-      console.error('[Books] Error:', error);
-      return reply.status(500).send({
-        error: 'BOOK_CREATE_ERROR',
-        message: '電子書建立失敗，請稍後再試',
+    if (!data) {
+      return reply.status(400).send({
+        error: 'MISSING_FILE',
+        message: 'PDF file is required',
       });
     }
+
+    // Get form fields
+    const fields: Record<string, string> = {};
+    for (const [key, value] of Object.entries(data.fields)) {
+      if (key === 'pdf_file') continue;
+      if (value && typeof value === 'object' && 'value' in value) {
+        fields[key] = (value as { value: string }).value;
+      } else if (typeof value === 'string') {
+        fields[key] = value;
+      } else if (Array.isArray(value) && value.length > 0) {
+        const firstValue = value[0] as { value?: string };
+        if (typeof firstValue === 'object' && firstValue.value) {
+          fields[key] = firstValue.value;
+        }
+      }
+    }
+
+    const title = fields.title;
+    if (!title) {
+      return reply.status(400).send({
+        error: 'MISSING_TITLE',
+        message: 'title is required',
+      });
+    }
+
+    // Read file buffer (must happen before reply, stream consumed once)
+    const chunks: Buffer[] = [];
+    for await (const chunk of data.file) {
+      chunks.push(chunk);
+    }
+    const rawPdfBuffer = Buffer.concat(chunks);
+
+    // Validate PDF magic bytes
+    if (rawPdfBuffer.length < 4 || rawPdfBuffer.toString('ascii', 0, 4) !== '%PDF') {
+      return reply.status(400).send({
+        error: 'INVALID_PDF',
+        message: '上傳的檔案不是有效的 PDF',
+      });
+    }
+
+    const taskId = randomUUID();
+    const filename = data.filename;
+
+    // 立即回 202 Accepted
+    reply.status(202).send({
+      success: true,
+      message: '檔案已接收，後台處理中',
+      task_id: taskId,
+      title,
+    });
+
+    // --- 非同步部分：背景處理 ---
+    (async () => {
+      try {
+        // 0. 壓縮 PDF
+        const compressionQuality = (fields.compression_quality as 'screen' | 'ebook' | 'printer' | 'prepress') || 'ebook';
+        const skipCompression = fields.skip_compression === 'true';
+
+        let pdfBuffer: Buffer = rawPdfBuffer;
+        let compressionInfo: { originalSize: number; compressedSize: number; ratio: number } | null = null;
+
+        if (!skipCompression) {
+          await broadcastBookUploadProgress(taskId, { step: 'compressing', progress: '壓縮 PDF 中...' });
+          console.log('[Books] Compressing PDF...');
+          const compressed = await compressPdf(rawPdfBuffer, { quality: compressionQuality });
+          pdfBuffer = Buffer.from(compressed.buffer);
+          compressionInfo = {
+            originalSize: compressed.originalSize,
+            compressedSize: compressed.compressedSize,
+            ratio: compressed.ratio,
+          };
+          console.log(`[Books] Compression: ${(compressed.originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressed.compressedSize / 1024 / 1024).toFixed(2)}MB (${(compressed.ratio * 100).toFixed(1)}%)`);
+        }
+
+        // 1. 上傳 PDF 到 Supabase Storage
+        await broadcastBookUploadProgress(taskId, { step: 'uploading', progress: '上傳 PDF 中...' });
+        console.log('[Books] Uploading PDF to storage...');
+        const storageResult = await uploadBookPdf(pdfBuffer, filename);
+        console.log(`[Books] PDF uploaded: ${storageResult.path}`);
+
+        // 1.5 擷取第一頁縮圖
+        await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '產生縮圖中...' });
+        let thumbnailUrl = fields.thumbnail_url || null;
+        if (!thumbnailUrl) {
+          const uuid = storageResult.path.replace(/^books\//, '').replace(/\.pdf$/, '');
+          const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
+          if (thumbBuffer) {
+            thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
+            console.log(`[Books] Thumbnail generated: ${thumbnailUrl}`);
+          }
+        }
+
+        // 2. 取得分類資訊
+        let categoryId: number | undefined;
+        if (fields.category_id) {
+          categoryId = parseInt(fields.category_id, 10);
+        } else if (fields.category_slug) {
+          const category = await getBooksCategoryBySlug(fields.category_slug);
+          if (category) {
+            categoryId = category.id;
+          }
+        }
+
+        // 3. 寫入資料庫
+        await broadcastBookUploadProgress(taskId, { step: 'saving', progress: '寫入資料庫中...' });
+        const book = await insertBook({
+          category_id: categoryId || null,
+          book_id: storageResult.uuid,
+          title,
+          introtext: fields.introtext || fields.description || null,
+          catalogue: fields.catalogue || null,
+          author: fields.author || null,
+          author_introtext: fields.author_introtext || null,
+          publisher: fields.publisher || null,
+          book_date: fields.book_date || null,
+          isbn: fields.isbn || null,
+          pdf_path: storageResult.path,
+          thumbnail_url: thumbnailUrl,
+          language: fields.language || 'zh-TW',
+          turn_page: (fields.turn_page as 'left' | 'right') || 'left',
+          copyright: fields.copyright || null,
+          download: fields.download !== 'false',
+          online_purchase: fields.online_purchase || null,
+          publish_date: fields.publish_date || null,
+        });
+
+        console.log(`[Books] Book record created: ${book.id}`);
+
+        // 4. 記錄 audit log
+        await insertAuditLog({
+          user_email: fields.user_email || null,
+          action: 'create_book',
+          table_name: 'books',
+          record_id: book.id,
+          old_data: null,
+          new_data: { title },
+          metadata: {
+            pdf_path: storageResult.path,
+            compression: compressionInfo,
+          },
+        });
+
+        // 5. 廣播完成
+        await broadcastBookUploadProgress(taskId, {
+          step: 'completed',
+          progress: '電子書建立成功',
+          book: {
+            id: book.id,
+            book_id: book.book_id,
+            title: book.title,
+            thumbnail_url: book.thumbnail_url,
+            pdf_path: book.pdf_path,
+          },
+        });
+      } catch (error) {
+        console.error('[Books] Background processing error:', error);
+        await broadcastBookUploadProgress(taskId, {
+          step: 'failed',
+          error: error instanceof Error ? error.message : '電子書建立失敗',
+        }).catch(() => {});
+      }
+    })().catch(() => {});
   });
 
   // 更新電子書

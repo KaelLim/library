@@ -250,6 +250,22 @@ export async function broadcastAudioProgress(
   });
 }
 
+/**
+ * 廣播電子書上傳進度到 Realtime channel
+ */
+export async function broadcastBookUploadProgress(
+  taskId: string,
+  data: { step: 'compressing' | 'uploading' | 'thumbnail' | 'saving' | 'completed' | 'failed'; progress?: string; error?: string; book?: Record<string, unknown> }
+): Promise<void> {
+  const channel = getSupabase().channel(`book-upload:${taskId}`);
+
+  await channel.send({
+    type: 'broadcast',
+    event: 'progress',
+    payload: data,
+  });
+}
+
 // =====================
 // Books 電子書操作
 // =====================

@@ -1,7 +1,9 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { BookCategory } from '../../services/books.js';
 import { getBookCategories } from '../../services/books.js';
+import { subscribeToBookUploadProgress, unsubscribeFromBookUploadProgress } from '../../services/realtime.js';
 import { toastStore } from '../../stores/toast-store.js';
 import { authStore } from '../../stores/auth-store.js';
 import '../ui/tc-dialog.js';
@@ -278,9 +280,23 @@ export class TcBookUploadDialog extends LitElement {
 
   @query('#file-input') private fileInput!: HTMLInputElement;
 
+  private uploadChannel: RealtimeChannel | null = null;
+
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
     await this.loadCategories();
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.cleanupChannel();
+  }
+
+  private cleanupChannel(): void {
+    if (this.uploadChannel) {
+      unsubscribeFromBookUploadProgress(this.uploadChannel);
+      this.uploadChannel = null;
+    }
   }
 
   private async loadCategories(): Promise<void> {
@@ -673,6 +689,7 @@ export class TcBookUploadDialog extends LitElement {
     if (!this.canSubmit || !this.selectedFile) return;
 
     this.uploading = true;
+    this.uploadStep = '上傳檔案中...';
 
     try {
       const formData = new FormData();
@@ -702,8 +719,6 @@ export class TcBookUploadDialog extends LitElement {
       // File must be LAST
       formData.append('pdf_file', this.selectedFile);
 
-      this.uploadStep = '壓縮 PDF 中...';
-
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
       const token = authStore.session?.access_token || '';
       const response = await fetch('/worker/books/create', {
@@ -721,11 +736,26 @@ export class TcBookUploadDialog extends LitElement {
       }
 
       const result = await response.json();
+      const taskId = result.task_id as string;
+      const bookTitle = this.bookTitle.trim();
 
-      toastStore.success(`電子書「${result.book.title}」建立成功！`);
+      // 收到 202 → 關閉 dialog，訂閱背景進度
+      toastStore.info(`「${bookTitle}」檔案已上傳，後台處理中...`);
       this.resetForm();
-      this.dispatchEvent(new CustomEvent('tc-book-created', { detail: result.book }));
       this.dispatchEvent(new CustomEvent('tc-dialog-close'));
+
+      // 訂閱 Realtime 進度
+      this.cleanupChannel();
+      this.uploadChannel = subscribeToBookUploadProgress(taskId, (update) => {
+        if (update.step === 'completed') {
+          toastStore.success(`電子書「${bookTitle}」建立成功！`);
+          this.dispatchEvent(new CustomEvent('tc-book-created', { detail: update.book }));
+          this.cleanupChannel();
+        } else if (update.step === 'failed') {
+          toastStore.error(update.error || '電子書建立失敗');
+          this.cleanupChannel();
+        }
+      });
     } catch (error) {
       console.error('Upload error:', error);
       toastStore.error(error instanceof Error ? error.message : '上傳失敗');

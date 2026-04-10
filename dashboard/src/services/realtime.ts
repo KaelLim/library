@@ -108,6 +108,39 @@ export function unsubscribeFromAudioProgress(channel: RealtimeChannel): void {
   supabase.removeChannel(channel);
 }
 
+// =====================
+// Book Upload 電子書上傳進度
+// =====================
+
+export type BookUploadStep = 'compressing' | 'uploading' | 'thumbnail' | 'saving' | 'completed' | 'failed';
+
+export interface BookUploadProgressUpdate {
+  step: BookUploadStep;
+  progress?: string;
+  error?: string;
+  book?: Record<string, unknown>;
+}
+
+export type BookUploadProgressCallback = (update: BookUploadProgressUpdate) => void;
+
+export function subscribeToBookUploadProgress(
+  taskId: string,
+  callback: BookUploadProgressCallback
+): RealtimeChannel {
+  const channel = supabase
+    .channel(`book-upload:${taskId}`)
+    .on('broadcast', { event: 'progress' }, (payload) => {
+      callback(payload.payload as BookUploadProgressUpdate);
+    })
+    .subscribe();
+
+  return channel;
+}
+
+export function unsubscribeFromBookUploadProgress(channel: RealtimeChannel): void {
+  supabase.removeChannel(channel);
+}
+
 /**
  * 從 weekly 表讀取當前匯入狀態
  */
