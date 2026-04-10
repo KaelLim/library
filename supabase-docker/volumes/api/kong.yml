@@ -315,6 +315,9 @@ services:
   - name: worker
     _comment: 'Worker: /worker/* -> http://worker:3001/*'
     url: http://worker:3001/
+    read_timeout: 300000
+    write_timeout: 300000
+    connect_timeout: 10000
     routes:
       - name: worker-all
         strip_path: true
