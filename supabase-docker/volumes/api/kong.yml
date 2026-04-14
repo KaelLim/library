@@ -83,6 +83,14 @@ services:
           allow:
             - admin
             - anon
+      # 防止登入暴力破解：每 IP 每分鐘 30 次、每小時 500 次
+      - name: rate-limiting
+        config:
+          minute: 30
+          hour: 500
+          policy: local
+          fault_tolerant: true
+          limit_by: ip
 
   ## Secure REST routes
   - name: rest-v1
@@ -310,6 +318,14 @@ services:
           - /api/v1
     plugins:
       - name: cors
+      # 公開 API：每 IP 每分鐘 300 次（配合前端正常流量）
+      - name: rate-limiting
+        config:
+          minute: 300
+          hour: 10000
+          policy: local
+          fault_tolerant: true
+          limit_by: ip
 
   ## Worker API routes (週報匯入 + 電子書管理，需 API key)
   - name: worker
@@ -334,6 +350,14 @@ services:
           allow:
             - admin
             - anon
+      # 內部 Worker API：每消費者每分鐘 600 次（批次作業寬鬆）
+      - name: rate-limiting
+        config:
+          minute: 600
+          hour: 20000
+          policy: local
+          fault_tolerant: true
+          limit_by: consumer
 
   ## PDF Reader (自建翻頁電子書)
   - name: books-reader
