@@ -629,6 +629,7 @@ services:
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       BOOKS_DIR: /app/books
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8973,http://localhost:8000,http://localhost:3001}
     volumes:
       - ../.claude/skills:/.claude/skills:ro
       - ../books:/app/books:ro

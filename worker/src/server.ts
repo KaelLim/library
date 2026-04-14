@@ -1,9 +1,10 @@
 import 'dotenv/config';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { runImportWorker } from './worker.js';
@@ -24,13 +25,22 @@ const fastify = Fastify({
   connectionTimeout: 0,     // 不限制連線建立時間
 });
 
-// Enable CORS
+// Security headers（helmet）— Book Reader SSR 需要 inline script，CSP 暫不強制
+await fastify.register(helmet, {
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+});
+
+// Enable CORS — 由 ALLOWED_ORIGINS 環境變數控制，fallback 到本機開發預設值
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ||
+  'http://localhost:8973,http://localhost:8000,http://localhost:3001')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 await fastify.register(cors, {
-  origin: [
-    'http://localhost:8973',
-    'http://localhost:8000',
-    'http://localhost:3001',
-  ],
+  origin: allowedOrigins,
   credentials: true,
 });
 
@@ -38,6 +48,20 @@ await fastify.register(cors, {
 await fastify.register(rateLimit, {
   max: 100,
   timeWindow: '1 minute',
+});
+
+// 全域錯誤處理：避免錯誤訊息外洩內部細節
+fastify.setErrorHandler((err: FastifyError, request, reply) => {
+  request.log.error(err);
+  const status = err.statusCode ?? 500;
+  const safeMessage =
+    status >= 500
+      ? 'Internal server error'
+      : err.message || 'Bad request';
+  reply.status(status).send({
+    error: err.code ?? err.name ?? 'INTERNAL_ERROR',
+    message: safeMessage,
+  });
 });
 
 // Multipart support (for file uploads)
