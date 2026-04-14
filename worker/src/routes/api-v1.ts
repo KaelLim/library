@@ -394,24 +394,25 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     }));
   });
 
-  // GET /books - 電子書列表
+  // GET /books - 電子書列表 / 搜尋
   fastify.get<{
-    Querystring: { category_id?: string; limit?: string; offset?: string };
+    Querystring: { category_id?: string; q?: string; limit?: string; offset?: string };
   }>('/books', {
     schema: {
       tags: ['電子書'],
-      summary: '電子書列表',
-      description: '取得電子書列表',
+      summary: '電子書列表 / 搜尋',
+      description: '取得電子書列表；提供 q 時對 title / author / publisher / isbn / introtext 做模糊搜尋',
       querystring: {
         type: 'object',
         properties: {
           ...paginationQueryProps,
           category_id: { type: 'string', description: '篩選分類 ID' },
+          q: { type: 'string', description: '關鍵字搜尋（標題／作者／出版社／ISBN／簡介）' },
         },
       },
     },
   }, async (request) => {
-    const { category_id, limit: limitStr, offset: offsetStr } = request.query;
+    const { category_id, q, limit: limitStr, offset: offsetStr } = request.query;
     const { limit, offset } = parsePagination(limitStr, offsetStr);
 
     let query = getSupabase()
@@ -421,6 +422,17 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       .range(offset, offset + limit - 1);
 
     if (category_id) query = query.eq('category_id', parseInt(category_id, 10));
+
+    if (q) {
+      // 清除會影響 PostgREST or() 語法的字元：逗號、括號、反斜線、百分號
+      const keyword = q.trim().replace(/[,()\\%]/g, '').slice(0, 100);
+      if (keyword) {
+        const pattern = `%${keyword}%`;
+        query = query.or(
+          `title.ilike.${pattern},author.ilike.${pattern},publisher.ilike.${pattern},isbn.ilike.${pattern},introtext.ilike.${pattern}`
+        );
+      }
+    }
 
     const { data, count, error } = await query;
     if (error) throw error;
