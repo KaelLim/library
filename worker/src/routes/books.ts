@@ -122,7 +122,12 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
     (async () => {
       try {
         // 0. 壓縮 PDF
-        const compressionQuality = (fields.compression_quality as 'screen' | 'ebook' | 'printer' | 'prepress') || 'ebook';
+        const VALID_QUALITIES = ['screen', 'ebook', 'printer', 'prepress'] as const;
+        type Quality = (typeof VALID_QUALITIES)[number];
+        const rawQuality = fields.compression_quality;
+        const compressionQuality: Quality = VALID_QUALITIES.includes(rawQuality as Quality)
+          ? (rawQuality as Quality)
+          : 'ebook';
         const skipCompression = fields.skip_compression === 'true';
 
         let pdfBuffer: Buffer = rawPdfBuffer;

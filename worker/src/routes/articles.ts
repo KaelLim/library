@@ -20,6 +20,7 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>('/rewrite', {
     preHandler: [requireAuth],
+    config: { rateLimit: { max: 30, timeWindow: '1 hour' } },
     schema: {
       body: {
         type: 'object',
@@ -94,6 +95,7 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
     Body: { article_id: number };
   }>('/generate-description', {
     preHandler: [requireAuth],
+    config: { rateLimit: { max: 60, timeWindow: '1 hour' } },
     schema: {
       body: {
         type: 'object',
@@ -139,7 +141,10 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
   // Batch generate descriptions
   fastify.post<{
     Body: { limit?: number };
-  }>('/batch-generate-descriptions', { preHandler: [requireAuth] }, async (request, reply) => {
+  }>('/batch-generate-descriptions', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 5, timeWindow: '1 hour' } },
+  }, async (request, reply) => {
     const { limit = 10 } = request.body || {};
 
     try {
@@ -195,6 +200,7 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
     Body: { article_id: number };
   }>('/generate-audio', {
     preHandler: [requireAuth],
+    config: { rateLimit: { max: 30, timeWindow: '1 hour' } },
     schema: {
       body: {
         type: 'object',

@@ -424,8 +424,12 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     if (category_id) query = query.eq('category_id', parseInt(category_id, 10));
 
     if (q) {
-      // 清除會影響 PostgREST or() 語法的字元：逗號、括號、反斜線、百分號
-      const keyword = q.trim().replace(/[,()\\%]/g, '').slice(0, 100);
+      // 白名單過濾：只保留字母、數字、中日韓文字、空白、常見標點；
+      // 其餘字元（逗號、括號、反斜線、%、* 等會破壞 PostgREST or() 語法）全部移除
+      const keyword = q
+        .trim()
+        .replace(/[^\p{L}\p{N}\s\-_.@]/gu, '')
+        .slice(0, 100);
       if (keyword) {
         const pattern = `%${keyword}%`;
         query = query.or(
