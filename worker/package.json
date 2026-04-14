@@ -21,7 +21,7 @@
     "@supabase/supabase-js": "^2.49.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.7.2",
-    "firebase-admin": "^13.7.0",
+    "firebase-admin": "^13.8.0",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
@@ -29,5 +29,8 @@
     "@types/sharp": "^0.31.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "fast-xml-parser": "^5.5.6"
   }
 }
