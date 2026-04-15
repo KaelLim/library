@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { requireAuth } from '../middleware/auth.js';
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import {
   getBooksCategories,
   getBooksCategoryBySlug,
@@ -18,6 +19,37 @@ import {
   broadcastBookUploadProgress,
 } from '../services/supabase.js';
 import { compressPdf, extractPdfThumbnail, isQpdfAvailable } from '../services/pdf-compressor.js';
+
+const MAX_COVER_SIZE = 10 * 1024 * 1024; // 10MB
+
+/** 檢查是否為支援的圖片格式（JPEG / PNG / WebP magic bytes） */
+function isSupportedImage(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true;
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47
+  ) return true;
+  // WebP: 'RIFF' ... 'WEBP'
+  if (
+    buf.toString('ascii', 0, 4) === 'RIFF' &&
+    buf.toString('ascii', 8, 12) === 'WEBP'
+  ) return true;
+  return false;
+}
+
+/** 將封面圖片統一轉為 JPEG（最大寬 1200px、品質 85） */
+async function normalizeCover(buf: Buffer): Promise<Buffer> {
+  return await sharp(buf)
+    .rotate() // 依 EXIF 方向自動轉正
+    .resize({ width: 1200, withoutEnlargement: true })
+    .jpeg({ quality: 85, mozjpeg: true })
+    .toBuffer();
+}
 
 export const bookRoutes: FastifyPluginAsync = async (fastify) => {
   // 取得所有電子書分類
@@ -58,30 +90,56 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
 
   // 創建電子書（非同步 202 模式：接收檔案後背景處理）
   fastify.post('/create', { preHandler: [requireAuth], config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (request, reply) => {
-    // --- 同步部分：驗證 + 讀取檔案 → 立即回 202 ---
-    const data = await request.file();
+    // --- 同步部分：遍歷 multipart parts（支援 pdf_file 必填 + cover_file 可選） ---
+    const fields: Record<string, string> = {};
+    let rawPdfBuffer: Buffer | null = null;
+    let pdfFilename = '';
+    let coverBuffer: Buffer | null = null;
 
-    if (!data) {
+    try {
+      for await (const part of request.parts()) {
+        if (part.type === 'file') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) chunks.push(chunk);
+          const buf = Buffer.concat(chunks);
+
+          if (part.fieldname === 'pdf_file') {
+            rawPdfBuffer = buf;
+            pdfFilename = part.filename;
+          } else if (part.fieldname === 'cover_file') {
+            if (buf.length > MAX_COVER_SIZE) {
+              return reply.status(400).send({
+                error: 'COVER_TOO_LARGE',
+                message: `封面檔案超過上限 ${MAX_COVER_SIZE / 1024 / 1024}MB`,
+              });
+            }
+            if (!isSupportedImage(buf)) {
+              return reply.status(400).send({
+                error: 'INVALID_COVER',
+                message: '封面必須是 JPG、PNG 或 WebP 格式',
+              });
+            }
+            coverBuffer = buf;
+          }
+          // 忽略其他未知檔案欄位
+        } else if (part.type === 'field') {
+          const v = (part as { value: unknown }).value;
+          if (typeof v === 'string') fields[part.fieldname] = v;
+        }
+      }
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(400).send({
+        error: 'UPLOAD_ERROR',
+        message: err instanceof Error ? err.message : '檔案讀取失敗',
+      });
+    }
+
+    if (!rawPdfBuffer) {
       return reply.status(400).send({
         error: 'MISSING_FILE',
         message: 'PDF file is required',
       });
-    }
-
-    // Get form fields
-    const fields: Record<string, string> = {};
-    for (const [key, value] of Object.entries(data.fields)) {
-      if (key === 'pdf_file') continue;
-      if (value && typeof value === 'object' && 'value' in value) {
-        fields[key] = (value as { value: string }).value;
-      } else if (typeof value === 'string') {
-        fields[key] = value;
-      } else if (Array.isArray(value) && value.length > 0) {
-        const firstValue = value[0] as { value?: string };
-        if (typeof firstValue === 'object' && firstValue.value) {
-          fields[key] = firstValue.value;
-        }
-      }
     }
 
     const title = fields.title;
@@ -92,13 +150,6 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    // Read file buffer (must happen before reply, stream consumed once)
-    const chunks: Buffer[] = [];
-    for await (const chunk of data.file) {
-      chunks.push(chunk);
-    }
-    const rawPdfBuffer = Buffer.concat(chunks);
-
     // Validate PDF magic bytes
     if (rawPdfBuffer.length < 4 || rawPdfBuffer.toString('ascii', 0, 4) !== '%PDF') {
       return reply.status(400).send({
@@ -108,7 +159,7 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const taskId = randomUUID();
-    const filename = data.filename;
+    const filename = pdfFilename;
 
     // 立即回 202 Accepted
     reply.status(202).send({
@@ -152,15 +203,25 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
         const storageResult = await uploadBookPdf(pdfBuffer, filename);
         console.log(`[Books] PDF uploaded: ${storageResult.path}`);
 
-        // 1.5 擷取第一頁縮圖
-        await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '產生縮圖中...' });
+        // 1.5 產生縮圖：優先使用使用者上傳的封面，否則擷取 PDF 第一頁
         let thumbnailUrl = fields.thumbnail_url || null;
         if (!thumbnailUrl) {
           const uuid = storageResult.path.replace(/^books\//, '').replace(/\.pdf$/, '');
-          const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
+          let thumbBuffer: Buffer | null = null;
+
+          if (coverBuffer) {
+            await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '處理封面中...' });
+            console.log('[Books] Using uploaded cover image');
+            thumbBuffer = await normalizeCover(coverBuffer);
+          } else {
+            await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '從 PDF 擷取封面中...' });
+            console.log('[Books] Extracting thumbnail from PDF first page');
+            thumbBuffer = await extractPdfThumbnail(pdfBuffer);
+          }
+
           if (thumbBuffer) {
             thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
-            console.log(`[Books] Thumbnail generated: ${thumbnailUrl}`);
+            console.log(`[Books] Thumbnail saved: ${thumbnailUrl}`);
           }
         }
 
@@ -211,6 +272,7 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
           metadata: {
             pdf_path: storageResult.path,
             compression: compressionInfo,
+            cover_source: coverBuffer ? 'uploaded' : 'pdf_first_page',
           },
         });
 

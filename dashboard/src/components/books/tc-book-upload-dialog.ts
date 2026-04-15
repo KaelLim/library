@@ -248,12 +248,53 @@ export class TcBookUploadDialog extends LitElement {
       font-weight: var(--font-weight-medium);
       color: var(--color-text-primary);
     }
+
+    .cover-preview {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-3);
+      margin-top: var(--spacing-2);
+    }
+
+    .cover-preview img {
+      width: 80px;
+      height: 112px;
+      object-fit: cover;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+    }
+
+    .cover-preview-info {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-1);
+      flex: 1;
+    }
+
+    .cover-hint {
+      font-size: var(--font-size-xs);
+      color: var(--color-text-muted);
+      margin-top: var(--spacing-1);
+    }
+
+    .cover-remove {
+      background: none;
+      border: none;
+      color: var(--color-danger);
+      cursor: pointer;
+      font-size: var(--font-size-xs);
+      padding: 0;
+      text-decoration: underline;
+      align-self: flex-start;
+    }
   `;
 
   @property({ type: Boolean }) open = false;
 
   @state() private categories: BookCategory[] = [];
   @state() private selectedFile: File | null = null;
+  @state() private selectedCover: File | null = null;
+  @state() private coverPreview: string | null = null;
   @state() private uploading = false;
   @state() private uploadStep = '';
   @state() private showAdvanced = false;
@@ -279,6 +320,7 @@ export class TcBookUploadDialog extends LitElement {
   @state() private weeklyNumber = '';
 
   @query('#file-input') private fileInput!: HTMLInputElement;
+  @query('#cover-input') private coverInput!: HTMLInputElement;
 
   private uploadChannel: RealtimeChannel | null = null;
 
@@ -390,6 +432,39 @@ export class TcBookUploadDialog extends LitElement {
                   </div>
                 `}
           </div>
+        </div>
+
+        <!-- 封面圖片（可選） -->
+        <div class="form-group full-width">
+          <label>封面圖片（可選）</label>
+          <input
+            id="cover-input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            style="display: none"
+            @change=${this.handleCoverChange}
+          />
+          ${this.selectedCover && this.coverPreview
+            ? html`
+                <div class="cover-preview">
+                  <img src=${this.coverPreview} alt="封面預覽" />
+                  <div class="cover-preview-info">
+                    <div class="file-name">${this.selectedCover.name}</div>
+                    <div class="file-size">${this.formatFileSize(this.selectedCover.size)}</div>
+                    <button type="button" class="cover-remove" @click=${this.handleCoverRemove}>
+                      移除封面
+                    </button>
+                  </div>
+                </div>
+              `
+            : html`
+                <div class="file-upload" @click=${this.handleCoverClick}>
+                  <div class="file-upload-text">
+                    <strong>點擊上傳</strong> 封面圖片（JPG / PNG / WebP，上限 10MB）
+                  </div>
+                  <div class="cover-hint">不上傳則自動使用 PDF 第一頁作為封面</div>
+                </div>
+              `}
         </div>
 
         <!-- 基本資訊 -->
@@ -649,6 +724,41 @@ export class TcBookUploadDialog extends LitElement {
     }
   }
 
+  private handleCoverClick(): void {
+    this.coverInput?.click();
+  }
+
+  private handleCoverChange(e: Event): void {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toastStore.error('封面必須是 JPG、PNG 或 WebP 格式');
+      input.value = '';
+      return;
+    }
+
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      toastStore.error('封面大小不可超過 10MB');
+      input.value = '';
+      return;
+    }
+
+    this.selectedCover = file;
+    if (this.coverPreview) URL.revokeObjectURL(this.coverPreview);
+    this.coverPreview = URL.createObjectURL(file);
+  }
+
+  private handleCoverRemove(): void {
+    if (this.coverPreview) URL.revokeObjectURL(this.coverPreview);
+    this.selectedCover = null;
+    this.coverPreview = null;
+    if (this.coverInput) this.coverInput.value = '';
+  }
+
   private formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -664,6 +774,9 @@ export class TcBookUploadDialog extends LitElement {
 
   private resetForm(): void {
     this.selectedFile = null;
+    if (this.coverPreview) URL.revokeObjectURL(this.coverPreview);
+    this.selectedCover = null;
+    this.coverPreview = null;
     this.bookTitle = '';
     this.weeklyNumber = '';
     this.introtext = '';
@@ -716,7 +829,10 @@ export class TcBookUploadDialog extends LitElement {
       formData.append('turn_page', this.turnPage);
       formData.append('download', String(this.download));
 
-      // File must be LAST
+      // Files last. Cover (optional) before PDF so worker can capture it while streaming.
+      if (this.selectedCover) {
+        formData.append('cover_file', this.selectedCover);
+      }
       formData.append('pdf_file', this.selectedFile);
 
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';

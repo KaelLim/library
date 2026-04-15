@@ -67,7 +67,8 @@ fastify.setErrorHandler((err: FastifyError, request, reply) => {
 // Multipart support (for file uploads)
 await fastify.register(multipart, {
   limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB
+    fileSize: 200 * 1024 * 1024, // 200MB (PDF 最大)
+    files: 2,                    // pdf_file + 可選 cover_file
   },
 });
 
