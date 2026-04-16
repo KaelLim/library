@@ -12,10 +12,12 @@ import {
   deleteBook,
   uploadBookPdf,
   uploadBookThumbnail,
+  removeBookThumbnail,
   getBooksWithoutThumbnail,
   downloadBookPdf,
   insertAuditLog,
   broadcastBookUploadProgress,
+  type ThumbnailFormat,
 } from '../services/supabase.js';
 import { compressPdf, extractPdfThumbnail, isQpdfAvailable } from '../services/pdf-compressor.js';
 
@@ -41,13 +43,36 @@ function isSupportedImage(buf: Buffer): boolean {
   return false;
 }
 
-/** 將封面圖片統一轉為 JPEG（最大寬 1200px、品質 85） */
-async function normalizeCover(buf: Buffer): Promise<Buffer> {
-  return await sharp(buf)
-    .rotate() // 依 EXIF 方向自動轉正
-    .resize({ width: 1200, withoutEnlargement: true })
-    .jpeg({ quality: 85, mozjpeg: true })
-    .toBuffer();
+/** 偵測圖片格式（依 magic bytes） */
+function detectCoverFormat(buf: Buffer): ThumbnailFormat {
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'png';
+  if (
+    buf.toString('ascii', 0, 4) === 'RIFF' &&
+    buf.toString('ascii', 8, 12) === 'WEBP'
+  ) return 'webp';
+  return 'jpeg';
+}
+
+/**
+ * 正規化封面圖片（方向校正 + 最大寬 1200px），保留原始格式以維持 PNG 透明度。
+ */
+async function normalizeCover(
+  buf: Buffer
+): Promise<{ buffer: Buffer; format: ThumbnailFormat }> {
+  const format = detectCoverFormat(buf);
+  let pipeline = sharp(buf)
+    .rotate()
+    .resize({ width: 1200, withoutEnlargement: true });
+
+  if (format === 'png') {
+    pipeline = pipeline.png({ compressionLevel: 9 });
+  } else if (format === 'webp') {
+    pipeline = pipeline.webp({ quality: 85 });
+  } else {
+    pipeline = pipeline.jpeg({ quality: 85, mozjpeg: true });
+  }
+
+  return { buffer: await pipeline.toBuffer(), format };
 }
 
 export const bookRoutes: FastifyPluginAsync = async (fastify) => {
@@ -207,11 +232,14 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
         if (!thumbnailUrl) {
           const uuid = storageResult.path.replace(/^books\//, '').replace(/\.pdf$/, '');
           let thumbBuffer: Buffer | null = null;
+          let thumbFormat: ThumbnailFormat = 'jpeg';
 
           if (coverBuffer) {
             await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '處理封面中...' });
             console.log('[Books] Using uploaded cover image');
-            thumbBuffer = await normalizeCover(coverBuffer);
+            const normalized = await normalizeCover(coverBuffer);
+            thumbBuffer = normalized.buffer;
+            thumbFormat = normalized.format;
           } else {
             await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '從 PDF 擷取封面中...' });
             console.log('[Books] Extracting thumbnail from PDF first page');
@@ -219,7 +247,7 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           if (thumbBuffer) {
-            thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid);
+            thumbnailUrl = await uploadBookThumbnail(thumbBuffer, uuid, thumbFormat);
             console.log(`[Books] Thumbnail saved: ${thumbnailUrl}`);
           }
         }
@@ -380,8 +408,16 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const jpeg = await normalizeCover(coverBuffer);
-        const thumbnailUrl = await uploadBookThumbnail(jpeg, uuid);
+        const { buffer: normalizedBuffer, format } = await normalizeCover(coverBuffer);
+        const thumbnailUrl = await uploadBookThumbnail(normalizedBuffer, uuid, format);
+
+        // 若舊封面副檔名與新封面不同（例如從 jpg 換成 png），清掉舊檔避免孤兒
+        if (book.thumbnail_url && book.thumbnail_url !== thumbnailUrl) {
+          await removeBookThumbnail(book.thumbnail_url).catch((err) => {
+            request.log.warn({ err }, '[Books] 清除舊封面失敗');
+          });
+        }
+
         const updated = await updateBook(bookId, { thumbnail_url: thumbnailUrl });
 
         await insertAuditLog({
@@ -391,7 +427,7 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
           record_id: bookId,
           old_data: { thumbnail_url: book.thumbnail_url },
           new_data: { thumbnail_url: thumbnailUrl },
-          metadata: { size: coverBuffer.length },
+          metadata: { size: coverBuffer.length, format },
         });
 
         return { success: true, book: updated, thumbnail_url: thumbnailUrl };

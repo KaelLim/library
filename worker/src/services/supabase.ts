@@ -413,23 +413,37 @@ export async function uploadBookPdf(
 /**
  * 上傳書籍縮圖到 Storage
  */
+export type ThumbnailFormat = 'jpeg' | 'png' | 'webp';
+
 export async function uploadBookThumbnail(
-  jpegBuffer: Buffer,
-  uuid: string
+  buffer: Buffer,
+  uuid: string,
+  format: ThumbnailFormat = 'jpeg'
 ): Promise<string> {
-  const path = `thumbnails/${uuid}.jpg`;
+  const ext = format === 'jpeg' ? 'jpg' : format;
+  const path = `thumbnails/${uuid}.${ext}`;
 
   const { error } = await getSupabase()
     .storage
     .from('books')
-    .upload(path, jpegBuffer, {
-      contentType: 'image/jpeg',
+    .upload(path, buffer, {
+      contentType: `image/${format}`,
       upsert: true,
     });
 
   if (error) throw error;
 
   return `/storage/v1/object/public/books/${path}`;
+}
+
+/**
+ * 刪除書籍封面（若副檔名與新的不同，用於切換格式時清理舊檔）
+ */
+export async function removeBookThumbnail(thumbnailUrl: string): Promise<void> {
+  const match = thumbnailUrl.match(/\/storage\/v1\/object\/public\/books\/(thumbnails\/[^?#]+)$/);
+  if (!match) return;
+  const path = match[1];
+  await getSupabase().storage.from('books').remove([path]);
 }
 
 /**
