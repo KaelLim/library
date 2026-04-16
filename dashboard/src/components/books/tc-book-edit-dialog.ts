@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { customElement, property, state, query } from 'lit/decorators.js';
 import type { BookWithCategory, BookCategory } from '../../services/books.js';
-import { getBookCategories, updateBook } from '../../services/books.js';
+import { getBookCategories, updateBook, uploadBookCover } from '../../services/books.js';
 import { toastStore } from '../../stores/toast-store.js';
 import '../ui/tc-dialog.js';
 import '../ui/tc-button.js';
@@ -212,6 +212,93 @@ export class TcBookEditDialog extends LitElement {
     .book-meta a:hover {
       text-decoration: underline;
     }
+
+    .file-upload {
+      border: 2px dashed var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-4);
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+
+    .file-upload:hover {
+      border-color: var(--color-accent);
+      background: var(--color-bg-muted);
+    }
+
+    .file-upload input {
+      display: none;
+    }
+
+    .file-upload-text {
+      font-size: var(--font-size-sm);
+      color: var(--color-text-secondary);
+    }
+
+    .file-upload-text strong {
+      color: var(--color-accent);
+    }
+
+    .cover-hint {
+      font-size: var(--font-size-xs);
+      color: var(--color-text-muted);
+      margin-top: var(--spacing-1);
+    }
+
+    .cover-preview {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--spacing-3);
+      margin-top: var(--spacing-2);
+    }
+
+    .cover-preview img {
+      width: 80px;
+      height: 112px;
+      object-fit: cover;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+    }
+
+    .cover-preview-info {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-1);
+      flex: 1;
+    }
+
+    .cover-preview-info .file-name {
+      font-size: var(--font-size-sm);
+      color: var(--color-success);
+      font-weight: var(--font-weight-medium);
+    }
+
+    .cover-preview-info .file-size {
+      font-size: var(--font-size-xs);
+      color: var(--color-text-muted);
+    }
+
+    .cover-remove {
+      background: none;
+      border: none;
+      color: var(--color-danger);
+      cursor: pointer;
+      font-size: var(--font-size-xs);
+      padding: 0;
+      text-decoration: underline;
+      align-self: flex-start;
+    }
+
+    .cover-badge {
+      display: inline-block;
+      font-size: var(--font-size-xs);
+      color: var(--color-accent);
+      background: var(--color-accent-light, rgba(59, 130, 246, 0.1));
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      width: fit-content;
+    }
   `;
 
   @property({ type: Boolean }) open = false;
@@ -237,6 +324,12 @@ export class TcBookEditDialog extends LitElement {
   @state() private language = 'zh-TW';
   @state() private turnPage: 'left' | 'right' = 'left';
   @state() private download = true;
+
+  // 封面
+  @state() private selectedCover: File | null = null;
+  @state() private coverPreview: string | null = null;
+
+  @query('#cover-edit-input') private coverInput!: HTMLInputElement;
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
@@ -300,6 +393,40 @@ export class TcBookEditDialog extends LitElement {
                 : ''}
               <div>建立時間: ${this.book.created_at ? new Date(this.book.created_at).toLocaleString('zh-TW') : '-'}</div>
             </div>
+          </div>
+
+          <!-- 封面 -->
+          <div class="form-group full-width">
+            <label>封面圖片</label>
+            <input
+              id="cover-edit-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style="display: none"
+              @change=${this.handleCoverChange}
+            />
+            ${this.selectedCover && this.coverPreview
+              ? html`
+                  <div class="cover-preview">
+                    <img src=${this.coverPreview} alt="新封面預覽" />
+                    <div class="cover-preview-info">
+                      <span class="cover-badge">將於儲存時更新</span>
+                      <div class="file-name">${this.selectedCover.name}</div>
+                      <div class="file-size">${this.formatFileSize(this.selectedCover.size)}</div>
+                      <button type="button" class="cover-remove" @click=${this.handleCoverRemove}>
+                        取消變更
+                      </button>
+                    </div>
+                  </div>
+                `
+              : html`
+                  <div class="file-upload" @click=${this.handleCoverClick}>
+                    <div class="file-upload-text">
+                      <strong>點擊上傳</strong> 新封面（JPG / PNG / WebP，上限 10MB）
+                    </div>
+                    <div class="cover-hint">不選擇則保留原封面</div>
+                  </div>
+                `}
           </div>
 
           <!-- 基本資訊 -->
@@ -509,8 +636,50 @@ export class TcBookEditDialog extends LitElement {
     return !!this.bookTitle.trim();
   }
 
+  private handleCoverClick(): void {
+    this.coverInput?.click();
+  }
+
+  private handleCoverChange(e: Event): void {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toastStore.error('封面必須是 JPG、PNG 或 WebP 格式');
+      input.value = '';
+      return;
+    }
+
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      toastStore.error('封面大小不可超過 10MB');
+      input.value = '';
+      return;
+    }
+
+    if (this.coverPreview) URL.revokeObjectURL(this.coverPreview);
+    this.selectedCover = file;
+    this.coverPreview = URL.createObjectURL(file);
+  }
+
+  private handleCoverRemove(): void {
+    if (this.coverPreview) URL.revokeObjectURL(this.coverPreview);
+    this.selectedCover = null;
+    this.coverPreview = null;
+    if (this.coverInput) this.coverInput.value = '';
+  }
+
+  private formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
   private handleClose(): void {
     if (!this.saving) {
+      this.handleCoverRemove();
       this.dispatchEvent(new CustomEvent('tc-dialog-close'));
     }
   }
@@ -521,6 +690,12 @@ export class TcBookEditDialog extends LitElement {
     this.saving = true;
 
     try {
+      let newThumbnailUrl: string | null = null;
+      if (this.selectedCover) {
+        const result = await uploadBookCover(this.book.id, this.selectedCover);
+        newThumbnailUrl = result.thumbnail_url;
+      }
+
       const updates = {
         title: this.bookTitle.trim(),
         category_id: this.categoryId ? parseInt(this.categoryId, 10) : null,
@@ -542,7 +717,16 @@ export class TcBookEditDialog extends LitElement {
       await updateBook(this.book.id, updates);
 
       toastStore.success('電子書已更新');
-      this.dispatchEvent(new CustomEvent('tc-book-updated', { detail: { id: this.book.id, ...updates } }));
+      this.handleCoverRemove();
+      this.dispatchEvent(
+        new CustomEvent('tc-book-updated', {
+          detail: {
+            id: this.book.id,
+            ...updates,
+            ...(newThumbnailUrl ? { thumbnail_url: newThumbnailUrl } : {}),
+          },
+        })
+      );
       this.dispatchEvent(new CustomEvent('tc-dialog-close'));
     } catch (error) {
       console.error('Save error:', error);

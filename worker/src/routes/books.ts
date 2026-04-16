@@ -8,7 +8,6 @@ import {
   insertBook,
   getBooks,
   getBookById,
-  incrementBookHits,
   updateBook,
   deleteBook,
   uploadBookPdf,
@@ -316,6 +315,95 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
   });
+
+  // 更新電子書封面（單獨 multipart 端點）
+  fastify.post<{ Params: { id: string } }>(
+    '/:id/cover',
+    { preHandler: [requireAuth], config: { rateLimit: { max: 30, timeWindow: '1 hour' } } },
+    async (request, reply) => {
+      const bookId = parseInt(request.params.id, 10);
+      const book = await getBookById(bookId);
+      if (!book) {
+        return reply.status(404).send({
+          error: 'BOOK_NOT_FOUND',
+          message: `Book ${bookId} not found`,
+        });
+      }
+
+      let coverBuffer: Buffer | null = null;
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === 'file' && part.fieldname === 'cover_file') {
+            const chunks: Buffer[] = [];
+            for await (const chunk of part.file) chunks.push(chunk);
+            const buf = Buffer.concat(chunks);
+            if (buf.length > MAX_COVER_SIZE) {
+              return reply.status(400).send({
+                error: 'COVER_TOO_LARGE',
+                message: `封面檔案超過上限 ${MAX_COVER_SIZE / 1024 / 1024}MB`,
+              });
+            }
+            if (!isSupportedImage(buf)) {
+              return reply.status(400).send({
+                error: 'INVALID_COVER',
+                message: '封面必須是 JPG、PNG 或 WebP 格式',
+              });
+            }
+            coverBuffer = buf;
+          }
+        }
+      } catch (err) {
+        request.log.error(err);
+        return reply.status(400).send({
+          error: 'UPLOAD_ERROR',
+          message: err instanceof Error ? err.message : '封面讀取失敗',
+        });
+      }
+
+      if (!coverBuffer) {
+        return reply.status(400).send({
+          error: 'MISSING_COVER',
+          message: 'cover_file is required',
+        });
+      }
+
+      // 取得用於 thumbnail 檔名的 UUID（優先用 book_id，否則從 pdf_path 推導）
+      let uuid = book.book_id;
+      if (!uuid && book.pdf_path) {
+        uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
+      }
+      if (!uuid) {
+        return reply.status(400).send({
+          error: 'NO_BOOK_UUID',
+          message: '此書籍沒有 book_id 或 pdf_path，無法更新封面',
+        });
+      }
+
+      try {
+        const jpeg = await normalizeCover(coverBuffer);
+        const thumbnailUrl = await uploadBookThumbnail(jpeg, uuid);
+        const updated = await updateBook(bookId, { thumbnail_url: thumbnailUrl });
+
+        await insertAuditLog({
+          user_email: (request as any).user?.email || null,
+          action: 'update_book_cover',
+          table_name: 'books',
+          record_id: bookId,
+          old_data: { thumbnail_url: book.thumbnail_url },
+          new_data: { thumbnail_url: thumbnailUrl },
+          metadata: { size: coverBuffer.length },
+        });
+
+        return { success: true, book: updated, thumbnail_url: thumbnailUrl };
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({
+          error: 'COVER_UPDATE_ERROR',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    },
+  );
 
   // 刪除電子書
   fastify.delete<{

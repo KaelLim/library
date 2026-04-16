@@ -118,6 +118,35 @@ export async function updateBook(id: number, updates: Partial<Omit<Book, 'id' | 
 }
 
 /**
+ * 更新書籍封面（Worker multipart API）
+ */
+export async function uploadBookCover(
+  id: number,
+  file: File
+): Promise<{ thumbnail_url: string; book: Book }> {
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const token = authStore.session?.access_token || '';
+  const formData = new FormData();
+  formData.append('cover_file', file);
+
+  const response = await fetch(`/worker/books/${id}/cover`, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || '封面更新失敗');
+  }
+
+  return response.json();
+}
+
+/**
  * 刪除書籍
  */
 export async function deleteBook(id: number): Promise<void> {
