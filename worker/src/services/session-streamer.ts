@@ -79,7 +79,13 @@ async function getOrCreateChannel(weeklyId: number): Promise<RealtimeChannel> {
 export async function cleanupChannel(weeklyId: number): Promise<void> {
   const channel = channelCache.get(weeklyId);
   if (channel) {
-    await getSupabase().removeChannel(channel);
+    try {
+      await getSupabase().removeChannel(channel);
+    } catch (err) {
+      // @supabase/realtime-js 的 phoenix socket adapter 在某些狀況會丟
+      // `connToClose.close is not a function`，吞掉避免整個 worker crash
+      console.error(`[Query] removeChannel error (ignored):`, err);
+    }
     channelCache.delete(weeklyId);
     console.log(`[Query] Channel cleaned up for weekly ${weeklyId}`);
   }
@@ -132,6 +138,7 @@ export async function runSessionWithStreaming(
   }
 
   let result = '';
+  let fullText = '';
   let accumulatedText = '';
   let streamEventCount = 0;
   const IDLE_TIMEOUT = 2 * 60 * 1000; // 2 minutes without any activity
@@ -175,6 +182,7 @@ export async function runSessionWithStreaming(
         if (event?.type === 'content_block_delta') {
           const delta = event.delta;
           if (delta?.type === 'text_delta' && delta?.text) {
+            fullText += delta.text;
             accumulatedText += delta.text;
 
             // 累積到指定大小就廣播
@@ -206,8 +214,12 @@ export async function runSessionWithStreaming(
         console.log('[Query] Stream events:', streamEventCount);
 
         if (resultMsg.subtype === 'success') {
-          result = resultMsg.result || '';
-          console.log('[Query] Success, result length:', result?.length || 0);
+          result = resultMsg.result || fullText;
+          console.log(
+            '[Query] Success, result length:',
+            result?.length || 0,
+            resultMsg.result ? '(from result)' : '(fallback to streamed text)'
+          );
         } else {
           throw new Error(`Query failed: ${JSON.stringify(message)}`);
         }
