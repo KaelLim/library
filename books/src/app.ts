@@ -26,18 +26,29 @@ perfLog(`pdf.js loaded ${pdfjsLine}`);
 // flips on larger PDFs (toDataURL is synchronous). Revisit if blur appears.
 const RENDER_SCALE = 2;
 
-// Visible "Loading..." placeholder shown while a page is still rendering.
-// Keeps the flip animation smooth and avoids the "page broke" look of a
-// transparent placeholder.
+// "Loading" placeholder shown while a page is still rendering. Designed to
+// look like a blank book page: warm ivory background with a subtle paper
+// gradient, a thin frame hinting at page edges, and a clean rotating arc
+// spinner that mirrors how real readers expect a loading state (no jarring
+// grey-white vs the surrounding book).
 const LOADING_PLACEHOLDER =
   'data:image/svg+xml;utf8,' +
   encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520" preserveAspectRatio="xMidYMid meet">' +
-      '<rect width="400" height="520" fill="#f5f5f5"/>' +
-      '<text x="200" y="260" text-anchor="middle" font-family="sans-serif" font-size="22" fill="#999">Loading…</text>' +
-      '<circle cx="200" cy="300" r="10" fill="#bbb">' +
-        '<animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/>' +
-      '</circle>' +
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520" preserveAspectRatio="xMidYMid slice">' +
+      '<defs>' +
+        '<linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">' +
+          '<stop offset="0" stop-color="#faf6ec"/>' +
+          '<stop offset="1" stop-color="#ece4d2"/>' +
+        '</linearGradient>' +
+      '</defs>' +
+      '<rect width="400" height="520" fill="url(#paper)"/>' +
+      '<rect x="20" y="20" width="360" height="480" fill="none" stroke="rgba(120,100,70,0.08)" stroke-width="1"/>' +
+      '<g transform="translate(200,260)">' +
+        '<circle r="26" fill="none" stroke="rgba(100,85,60,0.12)" stroke-width="3.5"/>' +
+        '<circle r="26" fill="none" stroke="rgba(90,75,50,0.55)" stroke-width="3.5" stroke-dasharray="41 122" stroke-linecap="round">' +
+          '<animateTransform attributeName="transform" type="rotate" values="0;360" dur="1.1s" repeatCount="indefinite"/>' +
+        '</circle>' +
+      '</g>' +
     '</svg>'
   );
 
