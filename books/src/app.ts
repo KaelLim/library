@@ -557,6 +557,32 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
     // GA4: PDF loaded
     trackEvent('pdf_loaded', { pages: numPages, title: document.title });
 
+    // Background preload: first 3 pages of the PDF (independent of RTL —
+    // these are always the book's beginning). Helps the common "first open"
+    // case so the user can flip past the cover without a placeholder flash.
+    // Runs on a short delay so it doesn't compete with the initial visible-
+    // page render, and serialised so it never queues more than one at a time.
+    setTimeout(() => {
+      void (async () => {
+        for (const pageNum of [1, 2, 3]) {
+          if (pageNum > numPages) break;
+          if (renderedPages.has(pageNum)) continue;
+          try {
+            const data = await renderPageCached(pdf, pageNum, pdfUrl);
+            renderedPages.set(pageNum, data.dataUrl);
+            if (!pageFlip) continue;
+            const realIdx = currentPageMap.indexOf(pageNum);
+            if (realIdx < 0) continue;
+            const currentIdx = pageFlip.getCurrentPageIndex();
+            const isPortrait = pageFlip.getOrientation() === 'portrait';
+            if (realIdx === currentIdx || (!isPortrait && realIdx === currentIdx + 1)) {
+              pageFlip.updatePageImage(realIdx, data.dataUrl);
+            }
+          } catch { /* non-fatal */ }
+        }
+      })();
+    }, 500);
+
     // 6. Controls
     const toolbar = document.getElementById('toolbar')!;
     const pageInfoEl = document.getElementById('page-info')!;
