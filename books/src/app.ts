@@ -443,20 +443,12 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
       // Cache-hits update synchronously so previously rendered pages appear
       // instantly.
       let activeRender: Promise<void> | null = null;
-      let renderPagesEventCount = 0;
       pageFlip.on('renderPages', (e) => {
         const indices = e.data as number[];
         const currentIdx = pageFlip!.getCurrentPageIndex();
         const isPortrait = pageFlip!.getOrientation() === 'portrait';
         const visibleIndices = new Set<number>([currentIdx]);
         if (!isPortrait) visibleIndices.add(currentIdx + 1);
-
-        renderPagesEventCount++;
-        console.log(
-          `[perf] renderPages #${renderPagesEventCount}: ` +
-          `indices=[${indices.join(',')}] current=${currentIdx} ` +
-          `visible=[${[...visibleIndices].join(',')}] portrait=${isPortrait}`
-        );
 
         for (const idx of indices) {
           if (!visibleIndices.has(idx)) continue; // skip non-visible preloads
@@ -817,6 +809,40 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
     const thumbGrid = document.getElementById('thumbnail-grid')!;
     const btnThumbClose = document.getElementById('btn-thumb-close')!;
 
+    // Serialised thumbnail render queue — prevents the flood that previously
+    // kicked off one renderPageCached per page at init time (328 pages →
+    // 328 concurrent PDF.js queue entries blocking the main thread).
+    let thumbRenderQueue: Promise<void> = Promise.resolve();
+
+    // Only render thumbnails when they actually enter the overlay viewport.
+    // Overlay starts hidden; observer fires as user scrolls through it.
+    const thumbObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const img = entry.target as HTMLImageElement;
+        const pageNum = Number(img.dataset.pageNum);
+        if (!pageNum) continue;
+        thumbObserver.unobserve(img);
+
+        if (renderedPages.has(pageNum)) {
+          img.src = renderedPages.get(pageNum)!;
+          continue;
+        }
+        thumbRenderQueue = thumbRenderQueue.then(async () => {
+          if (renderedPages.has(pageNum)) {
+            img.src = renderedPages.get(pageNum)!;
+            return;
+          }
+          const data = await renderPageCached(pdf, pageNum, pdfUrl);
+          renderedPages.set(pageNum, data.dataUrl);
+          img.src = data.dataUrl;
+        }).catch(() => {});
+      }
+    }, {
+      root: thumbOverlay,
+      rootMargin: '200px',
+    });
+
     function buildThumbnails(): void {
       thumbGrid.innerHTML = '';
       const total = currentPageMap.length;
@@ -843,10 +869,9 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
         if (cached) {
           img.src = cached;
         } else {
-          renderPageCached(pdf, pageNum, pdfUrl).then(data => {
-            renderedPages.set(pageNum, data.dataUrl);
-            img.src = data.dataUrl;
-          });
+          img.src = LOADING_PLACEHOLDER;
+          img.dataset.pageNum = String(pageNum);
+          thumbObserver.observe(img);
         }
         imgWrap.appendChild(img);
       }
