@@ -3,7 +3,7 @@ node_modules/
 backups/
 drive-batch/
 *.py
-pages/
+books/
 firebase-service-account.json
 
 # Environment files

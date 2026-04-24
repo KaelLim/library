@@ -94,14 +94,21 @@ try {
 }
 
 // SSR 路由 + 靜態檔案：/books/r/*
-const STATIC_FILES = new Set(['style.css', 'app.js', 'page-flip.mp3']);
+// 任何帶副檔名的路徑當成靜態檔（含 lib/st-page-flip/dist/js/page-flip.browser.js），
+// 其餘路徑視為 book UUID，載入並渲染模板。
+const STATIC_EXTENSIONS = /\.(css|js|mjs|map|mp3|png|jpg|jpeg|svg|woff2?|ttf)$/i;
 
 fastify.get<{
   Params: { '*': string };
 }>('/books/r/*', async (request, reply) => {
   const wildcard = request.params['*'];
 
-  if (STATIC_FILES.has(wildcard)) {
+  // 阻擋 path traversal
+  if (wildcard.includes('..')) {
+    return reply.status(400).send({ error: 'Invalid path' });
+  }
+
+  if (STATIC_EXTENSIONS.test(wildcard)) {
     return reply.sendFile(wildcard);
   }
 
@@ -121,6 +128,21 @@ fastify.get<{
   const ogDescription = book.introtext || '';
   const ogAuthor = book.author || '';
 
+  // Viewer 從 <script id="viewer-config"> 讀取 JSON。
+  // turn_page='left' → Chinese RTL; turn_page='right' → English LTR.
+  const viewerConfig = {
+    pdf: pdfSrc,
+    turnPage: book.turn_page === 'right' ? 'right' : 'left',
+    analytics: {
+      trackPageFlip: true,
+      trackZoom: true,
+      trackNavigation: true,
+      trackShare: true,
+      trackFullscreen: true,
+      trackReadingTime: true,
+    },
+  };
+
   const injectedHtml = bookTemplate
     .replace(
       '<title>PDF Page Flip Demo</title>',
@@ -133,12 +155,8 @@ fastify.get<{
     <meta name="description" content="${escapeAttr(ogDescription)}" />`
     )
     .replace(
-      '</head>',
-      `<script>window.__BOOK_CONFIG__=${safeJsonForScript({
-        pdfSrc,
-        turnPage: book.turn_page === 'right' ? 'right' : 'left',
-        title: book.title,
-      })};</script>\n</head>`
+      /<script id="viewer-config" type="application\/json">[\s\S]*?<\/script>/,
+      `<script id="viewer-config" type="application/json">${safeJsonForScript(viewerConfig)}</script>`
     );
 
   incrementBookHits(book.id).catch(() => {});
