@@ -388,7 +388,7 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
         usePortrait: true,
         useMouseEvents: mouseEvents,
         showEdge: true,
-        preloadRange: 3,
+        preloadRange: 1,
         startPage: 0,
         // Mesh strip curl disabled — Canvas 2D can't render seamless quads,
         // which caused visible diagonal seams. Flat rotation (like original
