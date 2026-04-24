@@ -317,18 +317,32 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
     let currentPageMap: number[] = [];
     let lastSoundTime = 0;
 
-    // Serialised render queue driving visible-page rendering. Called from the
-    // `flip` event and after each buildBook(). Ignoring StPageFlip's own
-    // renderPages event (the fork's requestedPages dedup makes filtering
-    // there permanently drop pages).
+    // Serialised render queue driving visible-page rendering. Renders the
+    // current spread AND the next spread in the reading direction (so the
+    // user's next flip lands on cached pages). Ignores StPageFlip's own
+    // renderPages event — the fork's requestedPages dedup makes filtering
+    // there permanently drop pages, causing "only odd pages render" bugs.
     let activeRender: Promise<void> = Promise.resolve();
     function renderCurrentVisible(): void {
       activeRender = activeRender.then(async () => {
         if (!pageFlip) return;
         const currentIdx = pageFlip.getCurrentPageIndex();
         const isPortrait = pageFlip.getOrientation() === 'portrait';
-        const targets: number[] = [currentIdx];
-        if (!isPortrait) targets.push(currentIdx + 1);
+
+        // Current spread (must-render, what the user sees right now)
+        const visible: number[] = [currentIdx];
+        if (!isPortrait) visible.push(currentIdx + 1);
+
+        // Next spread in the reading direction. LTR: idx increases. RTL:
+        // idx decreases (currentPageMap is reversed). This way the user's
+        // next flip hits a cache-hit instead of waiting for render.
+        const direction = isRtl ? -1 : 1;
+        const stride = isPortrait ? 1 : 2;
+        const preload: number[] = [currentIdx + direction * stride];
+        if (!isPortrait) preload.push(currentIdx + direction * stride + 1);
+
+        // Render visible first (higher priority), then preload.
+        const targets = [...visible, ...preload];
 
         for (const idx of targets) {
           if (idx < 0 || idx >= currentPageMap.length) continue;
