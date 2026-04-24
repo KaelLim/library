@@ -9,9 +9,25 @@ import { extractLinks, resolveDestPage, type LinkInfo } from './links.js';
 const { lib: pdfjsLib, cMapUrl: pdfCmapUrl, version: pdfjsVersion, line: pdfjsLine } = await loadPdfJs();
 console.log(`[pdf.js] loaded ${pdfjsLine} ${pdfjsVersion}`);
 
-// PDF render scale: must be >= canvas buffer DPR (2x) to avoid upscaling blur.
-// 3x ensures source image covers 2x canvas buffer at typical page widths.
-const RENDER_SCALE = 3;
+// PDF render scale: should cover the canvas DPR to stay sharp. 2x is enough
+// for retina; 3x doubled CPU/memory cost and caused main-thread jank during
+// flips on larger PDFs (toDataURL is synchronous). Revisit if blur appears.
+const RENDER_SCALE = 2;
+
+// Visible "Loading..." placeholder shown while a page is still rendering.
+// Keeps the flip animation smooth and avoids the "page broke" look of a
+// transparent placeholder.
+const LOADING_PLACEHOLDER =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520" preserveAspectRatio="xMidYMid meet">' +
+      '<rect width="400" height="520" fill="#f5f5f5"/>' +
+      '<text x="200" y="260" text-anchor="middle" font-family="sans-serif" font-size="22" fill="#999">Loading…</text>' +
+      '<circle cx="200" cy="300" r="10" fill="#bbb">' +
+        '<animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/>' +
+      '</circle>' +
+    '</svg>'
+  );
 
 // Feature-detect WebP support once at startup.
 // WebP saves ~30-50% bandwidth/memory vs PNG with same visual quality.
@@ -366,10 +382,10 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
       currentPageMap = [...pageNums];
       const totalBookPages = currentPageMap.length;
 
-      // Create image URL array — use cached renders or transparent placeholder
-      const placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      // Create image URL array — use cached renders or visible "Loading…"
+      // placeholder so flip animation shows something, not a blank page.
       const imageHrefs = currentPageMap.map(num =>
-        renderedPages.get(num) ?? placeholder
+        renderedPages.get(num) ?? LOADING_PLACEHOLDER
       );
 
       pageFlip = new St.PageFlip(bookEl, {
@@ -398,8 +414,16 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
         canvasBgColor: 'transparent',
       });
 
-      // Lazy render: load PDF pages on demand via canvas API
-      pageFlip.on('renderPages', async (e) => {
+      // Lazy render. Cache-hits update immediately (synchronous flip-swap),
+      // cache-misses are deferred so the heavy pdf.render + toDataURL work
+      // doesn't block the ongoing flip animation. The viewer meanwhile shows
+      // the "Loading…" placeholder for unrendered pages.
+      const scheduleRender = (cb: () => void): void => {
+        const rIC = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+        if (rIC) rIC(cb, { timeout: 800 });
+        else setTimeout(cb, 500); // wait past flippingTime (450ms)
+      };
+      pageFlip.on('renderPages', (e) => {
         const indices = e.data as number[];
         for (const idx of indices) {
           if (idx < 0 || idx >= currentPageMap.length) continue;
@@ -409,9 +433,13 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
             pageFlip!.updatePageImage(idx, renderedPages.get(originalPage)!);
             continue;
           }
-          const pageData = await renderPageCached(pdf, originalPage, pdfUrl);
-          renderedPages.set(originalPage, pageData.dataUrl);
-          pageFlip!.updatePageImage(idx, pageData.dataUrl);
+          scheduleRender(async () => {
+            // Re-check after deferral — user may have flipped past this page.
+            if (renderedPages.has(originalPage)) return;
+            const pageData = await renderPageCached(pdf, originalPage, pdfUrl);
+            renderedPages.set(originalPage, pageData.dataUrl);
+            pageFlip!.updatePageImage(idx, pageData.dataUrl);
+          });
         }
       });
 
