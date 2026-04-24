@@ -443,12 +443,20 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
       // Cache-hits update synchronously so previously rendered pages appear
       // instantly.
       let activeRender: Promise<void> | null = null;
+      let renderPagesEventCount = 0;
       pageFlip.on('renderPages', (e) => {
         const indices = e.data as number[];
         const currentIdx = pageFlip!.getCurrentPageIndex();
         const isPortrait = pageFlip!.getOrientation() === 'portrait';
         const visibleIndices = new Set<number>([currentIdx]);
         if (!isPortrait) visibleIndices.add(currentIdx + 1);
+
+        renderPagesEventCount++;
+        console.log(
+          `[perf] renderPages #${renderPagesEventCount}: ` +
+          `indices=[${indices.join(',')}] current=${currentIdx} ` +
+          `visible=[${[...visibleIndices].join(',')}] portrait=${isPortrait}`
+        );
 
         for (const idx of indices) {
           if (!visibleIndices.has(idx)) continue; // skip non-visible preloads
