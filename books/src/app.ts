@@ -435,18 +435,23 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
         canvasBgColor: 'transparent',
       });
 
-      // Lazy render. Cache-hits update immediately (synchronous flip-swap),
-      // cache-misses are deferred so the heavy pdf.render + toDataURL work
-      // doesn't block the ongoing flip animation. The viewer meanwhile shows
-      // the "Loading…" placeholder for unrendered pages.
-      const scheduleRender = (cb: () => void): void => {
-        const rIC = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
-        if (rIC) rIC(cb, { timeout: 800 });
-        else setTimeout(cb, 500); // wait past flippingTime (450ms)
-      };
+      // Render strategy: ONLY render pages the user is currently looking at.
+      // StPageFlip's renderPages event includes preload neighbours, but those
+      // queued renders were pile-blocking the main thread (up to 19 pages at
+      // once on large RTL books). We skip any index that isn't part of the
+      // current visible spread; it renders later when the user flips to it.
+      // Cache-hits update synchronously so previously rendered pages appear
+      // instantly.
+      let activeRender: Promise<void> | null = null;
       pageFlip.on('renderPages', (e) => {
         const indices = e.data as number[];
+        const currentIdx = pageFlip!.getCurrentPageIndex();
+        const isPortrait = pageFlip!.getOrientation() === 'portrait';
+        const visibleIndices = new Set<number>([currentIdx]);
+        if (!isPortrait) visibleIndices.add(currentIdx + 1);
+
         for (const idx of indices) {
+          if (!visibleIndices.has(idx)) continue; // skip non-visible preloads
           if (idx < 0 || idx >= currentPageMap.length) continue;
           const originalPage = currentPageMap[idx]!;
           if (!originalPage) continue;
@@ -454,13 +459,26 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
             pageFlip!.updatePageImage(idx, renderedPages.get(originalPage)!);
             continue;
           }
-          scheduleRender(async () => {
-            // Re-check after deferral — user may have flipped past this page.
+          // Chain renders so only one PDF.js render runs at a time. A second
+          // flip before the first render finishes will wait its turn (instead
+          // of spawning a concurrent render that fights the first for CPU).
+          const doRender = async (): Promise<void> => {
             if (renderedPages.has(originalPage)) return;
+            // Skip if user has already flipped away from this page.
+            const nowIdx = pageFlip!.getCurrentPageIndex();
+            const nowVisible = new Set<number>([nowIdx]);
+            if (pageFlip!.getOrientation() !== 'portrait') nowVisible.add(nowIdx + 1);
+            if (!nowVisible.has(idx)) return;
             const pageData = await renderPageCached(pdf, originalPage, pdfUrl);
             renderedPages.set(originalPage, pageData.dataUrl);
-            pageFlip!.updatePageImage(idx, pageData.dataUrl);
-          });
+            // Re-check index — user may have flipped during the await.
+            if (pageFlip!.getOrientation() === 'portrait'
+              ? pageFlip!.getCurrentPageIndex() === idx
+              : pageFlip!.getCurrentPageIndex() === idx || pageFlip!.getCurrentPageIndex() + 1 === idx) {
+              pageFlip!.updatePageImage(idx, pageData.dataUrl);
+            }
+          };
+          activeRender = (activeRender ?? Promise.resolve()).then(doRender).catch(() => {});
         }
       });
 
