@@ -317,6 +317,41 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
     let currentPageMap: number[] = [];
     let lastSoundTime = 0;
 
+    // Serialised render queue driving visible-page rendering. Called from the
+    // `flip` event and after each buildBook(). Ignoring StPageFlip's own
+    // renderPages event (the fork's requestedPages dedup makes filtering
+    // there permanently drop pages).
+    let activeRender: Promise<void> = Promise.resolve();
+    function renderCurrentVisible(): void {
+      activeRender = activeRender.then(async () => {
+        if (!pageFlip) return;
+        const currentIdx = pageFlip.getCurrentPageIndex();
+        const isPortrait = pageFlip.getOrientation() === 'portrait';
+        const targets: number[] = [currentIdx];
+        if (!isPortrait) targets.push(currentIdx + 1);
+
+        for (const idx of targets) {
+          if (idx < 0 || idx >= currentPageMap.length) continue;
+          const originalPage = currentPageMap[idx];
+          if (!originalPage) continue;
+          if (renderedPages.has(originalPage)) {
+            pageFlip.updatePageImage(idx, renderedPages.get(originalPage)!);
+            continue;
+          }
+          try {
+            const data = await renderPageCached(pdf, originalPage, pdfUrl);
+            renderedPages.set(originalPage, data.dataUrl);
+            // Re-check still visible after the async render gap.
+            const nowIdx = pageFlip.getCurrentPageIndex();
+            const nowIsPortrait = pageFlip.getOrientation() === 'portrait';
+            if (nowIdx === idx || (!nowIsPortrait && nowIdx + 1 === idx)) {
+              pageFlip.updatePageImage(idx, data.dataUrl);
+            }
+          } catch { /* non-fatal */ }
+        }
+      }).catch(() => {});
+    }
+
     // Reading time tracking: accumulate dwell time per page
     let currentPageEnterTime = Date.now();
     let currentPageForTiming = 0;
@@ -435,52 +470,13 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
         canvasBgColor: 'transparent',
       });
 
-      // Render strategy: ONLY render pages the user is currently looking at.
-      // StPageFlip's renderPages event includes preload neighbours, but those
-      // queued renders were pile-blocking the main thread (up to 19 pages at
-      // once on large RTL books). We skip any index that isn't part of the
-      // current visible spread; it renders later when the user flips to it.
-      // Cache-hits update synchronously so previously rendered pages appear
-      // instantly.
-      let activeRender: Promise<void> | null = null;
-      pageFlip.on('renderPages', (e) => {
-        const indices = e.data as number[];
-        const currentIdx = pageFlip!.getCurrentPageIndex();
-        const isPortrait = pageFlip!.getOrientation() === 'portrait';
-        const visibleIndices = new Set<number>([currentIdx]);
-        if (!isPortrait) visibleIndices.add(currentIdx + 1);
-
-        for (const idx of indices) {
-          if (!visibleIndices.has(idx)) continue; // skip non-visible preloads
-          if (idx < 0 || idx >= currentPageMap.length) continue;
-          const originalPage = currentPageMap[idx]!;
-          if (!originalPage) continue;
-          if (renderedPages.has(originalPage)) {
-            pageFlip!.updatePageImage(idx, renderedPages.get(originalPage)!);
-            continue;
-          }
-          // Chain renders so only one PDF.js render runs at a time. A second
-          // flip before the first render finishes will wait its turn (instead
-          // of spawning a concurrent render that fights the first for CPU).
-          const doRender = async (): Promise<void> => {
-            if (renderedPages.has(originalPage)) return;
-            // Skip if user has already flipped away from this page.
-            const nowIdx = pageFlip!.getCurrentPageIndex();
-            const nowVisible = new Set<number>([nowIdx]);
-            if (pageFlip!.getOrientation() !== 'portrait') nowVisible.add(nowIdx + 1);
-            if (!nowVisible.has(idx)) return;
-            const pageData = await renderPageCached(pdf, originalPage, pdfUrl);
-            renderedPages.set(originalPage, pageData.dataUrl);
-            // Re-check index — user may have flipped during the await.
-            if (pageFlip!.getOrientation() === 'portrait'
-              ? pageFlip!.getCurrentPageIndex() === idx
-              : pageFlip!.getCurrentPageIndex() === idx || pageFlip!.getCurrentPageIndex() + 1 === idx) {
-              pageFlip!.updatePageImage(idx, pageData.dataUrl);
-            }
-          };
-          activeRender = (activeRender ?? Promise.resolve()).then(doRender).catch(() => {});
-        }
-      });
+      // Render strategy: ignore StPageFlip's renderPages event entirely and
+      // drive rendering from our own `flip` listener (see the `flip` handler
+      // further down). The fork's `requestedPages` dedup means any index we
+      // skip here will NEVER be re-emitted, so a filter-based approach would
+      // permanently drop pages (we saw this as "only odd pages render" when
+      // even-page indices from the initial cover spread were filtered away
+      // but still marked as requested).
 
       pageFlip.loadFromImages(imageHrefs);
 
@@ -515,6 +511,9 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
           trackEvent('page_flip', { page: getOriginalPage(), total: numPages });
         }
 
+        // Render whatever is now visible (if not already cached).
+        renderCurrentVisible();
+
         // Broadcast so TOC / link overlays survive buildBook rebuilds.
         document.dispatchEvent(new CustomEvent('viewer:flip'));
       });
@@ -522,6 +521,9 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
       // Initialize timer for starting page
       currentPageForTiming = getOriginalPage();
       currentPageEnterTime = Date.now();
+
+      // Render the spread the book just opened to (post-buildBook or resize).
+      renderCurrentVisible();
     }
 
     let resizeTimer: ReturnType<typeof setTimeout>;
