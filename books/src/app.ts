@@ -4,22 +4,10 @@ import { getCachedPage, setCachedPage, buildCacheKey, evictStaleCache } from './
 import { buildIndex as buildSearchIndex, search as runSearch, type PageIndex, type SearchMatch } from './search.js';
 import { extractLinks, resolveDestPage, type LinkInfo } from './links.js';
 
-// ── Timing diagnostics (remove after perf tuning) ──
-const T0 = (globalThis as unknown as { __viewerStart?: number }).__viewerStart ?? performance.now();
-let tLast = T0;
-function perfLog(label: string): void {
-  const now = performance.now();
-  const total = (now - T0).toFixed(0);
-  const delta = (now - tLast).toFixed(0);
-  tLast = now;
-  console.log(`[perf] ${label.padEnd(28)} +${delta.padStart(5)}ms  (total ${total}ms)`);
-}
-perfLog('app.ts entered');
-
 // Feature-detect browser capability and load the matching PDF.js line
 // (v5 → v4 → v3 → v3-legacy). Also wires up GlobalWorkerOptions.workerSrc.
 const { lib: pdfjsLib, cMapUrl: pdfCmapUrl, version: pdfjsVersion, line: pdfjsLine } = await loadPdfJs();
-perfLog(`pdf.js loaded ${pdfjsLine}`);
+console.log(`[pdf.js] loaded ${pdfjsLine} ${pdfjsVersion}`);
 
 // PDF render scale: should cover the canvas DPR to stay sharp. 2x is enough
 // for retina; 3x doubled CPU/memory cost and caused main-thread jank during
@@ -130,9 +118,7 @@ interface PageRenderResult {
 }
 
 async function renderPageToImage(pdf: PDFDocumentProxy, pageNum: number): Promise<PageRenderResult> {
-  const tStart = performance.now();
   const page = await pdf.getPage(pageNum);
-  const tGetPage = performance.now();
   const viewport = page.getViewport({ scale: RENDER_SCALE });
 
   const canvas = document.createElement('canvas');
@@ -143,18 +129,15 @@ async function renderPageToImage(pdf: PDFDocumentProxy, pageNum: number): Promis
   const ctx = (canvas.getContext('2d', { colorSpace: 'display-p3' } as CanvasRenderingContext2DSettings)
     || canvas.getContext('2d'))!;
   await page.render({ canvasContext: ctx, viewport }).promise;
-  const tRender = performance.now();
 
-  const dataUrl = SUPPORTS_WEBP
-    ? canvas.toDataURL('image/webp', 0.92)
-    : canvas.toDataURL('image/png');
-  const tEncode = performance.now();
-  console.log(
-    `[perf] render p${pageNum}: getPage=${(tGetPage - tStart).toFixed(0)}ms,` +
-    ` render=${(tRender - tGetPage).toFixed(0)}ms, encode=${(tEncode - tRender).toFixed(0)}ms,` +
-    ` total=${(tEncode - tStart).toFixed(0)}ms`
-  );
-  return { dataUrl, width: viewport.width, height: viewport.height };
+  return {
+    // Use WebP at 92% quality when supported — visually identical, ~30-50% smaller.
+    dataUrl: SUPPORTS_WEBP
+      ? canvas.toDataURL('image/webp', 0.92)
+      : canvas.toDataURL('image/png'),
+    width: viewport.width,
+    height: viewport.height,
+  };
 }
 
 /**
@@ -295,7 +278,6 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
       }));
     }
     const numPages = pdf.numPages;
-    perfLog(`pdf parsed (${numPages} pages)`);
 
     // 1b. Extract PDF metadata (ISO 32000 — XMP/Document Info)
     try {
@@ -306,16 +288,13 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
           `PDF document: ${meta.info.Title}, use arrow keys to navigate pages`);
       }
     } catch { /* metadata optional */ }
-    perfLog('metadata done');
 
     // 1c. Extract table of contents (PDF outline)
     const tocTree = await extractToc(pdf).catch(() => null);
-    perfLog(`toc done (${tocTree?.length ?? 0} items)`);
 
     // 2. Render only the first page to get dimensions
     loadingEl.textContent = 'Rendering...';
     const firstPage = await renderPageCached(pdf, 1, pdfUrl);
-    perfLog('first page rendered');
     const pageWidth = Math.round(firstPage.width);
     const pageHeight = Math.round(firstPage.height);
 
@@ -514,7 +493,6 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
 
       pageFlip.on('flip', () => {
         const now = Date.now();
-        perfLog(`flip → page ${getOriginalPage()}`);
         if (now - lastSoundTime > 500) {
           flipSound();
           lastSoundTime = now;
@@ -574,12 +552,10 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
       ? savedPage
       : undefined;
     buildBook(isRtl, initialPage);
-    perfLog('buildBook (StPageFlip) done');
     updateTextLayer();
 
     // 5. Hide loading indicator
     loadingEl.classList.add('hidden');
-    perfLog('READY — loading hidden');
 
     // GA4: PDF loaded
     trackEvent('pdf_loaded', { pages: numPages, title: document.title });
