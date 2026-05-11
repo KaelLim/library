@@ -60,6 +60,7 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
         title: rewritten.title,
         description: rewritten.description,
         content: rewritten.content,
+        sort_order: docsArticle.sort_order,
       });
 
       await insertAuditLog({

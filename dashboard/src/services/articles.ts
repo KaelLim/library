@@ -15,6 +15,7 @@ export async function getArticles(
     .select('*, category(*)')
     .eq('weekly_id', weeklyId)
     .order('category_id', { ascending: true })
+    .order('sort_order', { ascending: true })
     .order('id', { ascending: true });
 
   if (platform) {

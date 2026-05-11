@@ -149,6 +149,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       .select('*, category:category_id(*)')
       .eq('weekly_id', weekNumber)
       .order('category_id')
+      .order('sort_order')
       .order('id');
 
     if (platform) {
@@ -222,10 +223,11 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const weekNumbers = weeklyList.map((w: any) => w.week_number);
     const { data: allArticles, error: artError } = await getSupabase()
       .from('articles')
-      .select('id, title, description, content, category_id, weekly_id')
+      .select('id, title, description, content, category_id, weekly_id, sort_order')
       .in('weekly_id', weekNumbers)
       .eq('platform', 'digital')
       .order('category_id')
+      .order('sort_order')
       .order('id');
 
     if (artError) throw artError;
