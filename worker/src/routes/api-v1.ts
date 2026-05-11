@@ -296,7 +296,8 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     let query = getSupabase()
       .from('articles')
       .select('*, category:category_id(*)', { count: 'exact' })
-      .order('id', { ascending: false })
+      .order('category_id', { ascending: true })
+      .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
 
     if (weekly_id) query = query.eq('weekly_id', parseInt(weekly_id, 10));
