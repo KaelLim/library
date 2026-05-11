@@ -28,7 +28,6 @@ create table public.articles (
   title text not null,
   description text null,
   content text not null,
-  sort_order integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint articles_pkey primary key (id),
@@ -42,11 +41,6 @@ create table public.articles (
 create index idx_articles_weekly_id on public.articles using btree (weekly_id);
 create index idx_articles_category_id on public.articles using btree (category_id);
 create index idx_articles_platform on public.articles using btree (platform);
-create index idx_articles_weekly_category_order
-  on public.articles using btree (weekly_id, category_id, sort_order, id);
-
--- sort_order: 同 (weekly_id, category_id, platform) 內 0-indexed 顯示順序，
--- 由 AI parser 依原文順序設定。ORDER BY 用 sort_order，id 當 tiebreaker。
 
 create table public.allowed_users (
   id bigserial not null,

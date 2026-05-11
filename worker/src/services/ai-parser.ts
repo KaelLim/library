@@ -55,26 +55,6 @@ ${markdown}`;
       if (!cat.articles || !Array.isArray(cat.articles)) {
         throw new Error(`Category "${cat.name}" missing required field: articles`);
       }
-      // 正規化 sort_order：缺漏或重複時依陣列順序覆寫，確保同分類內 0..N-1 不重複
-      const seen = new Set<number>();
-      let needsRewrite = false;
-      for (const art of cat.articles) {
-        const v = (art as { sort_order?: unknown }).sort_order;
-        if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || seen.has(v)) {
-          needsRewrite = true;
-          break;
-        }
-        seen.add(v);
-      }
-      if (needsRewrite) {
-        console.warn(
-          `[ai-parser] Category "${cat.name}" has missing/duplicate sort_order, ` +
-          `falling back to array index order (${cat.articles.length} articles)`
-        );
-        cat.articles.forEach((art, idx) => {
-          art.sort_order = idx;
-        });
-      }
     }
     parsed.weekly_id = weeklyId; // 確保 weekly_id 正確
     return parsed;

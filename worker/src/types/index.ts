@@ -3,9 +3,6 @@ export interface ParsedArticle {
   title: string;
   description?: string;
   content: string;
-  // 同分類內顯示順序（0-indexed）。AI 解析時依原文順序設定，
-  // 若 AI 未輸出由 ai-parser 依陣列 index 補上。
-  sort_order: number;
 }
 
 export interface ParsedCategory {
@@ -45,7 +42,6 @@ export interface Article {
   title: string;
   description: string | null;
   content: string;
-  sort_order: number;
   created_at: string;
   updated_at: string;
 }

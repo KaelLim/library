@@ -151,7 +151,6 @@ export async function runImportWorker(
           title: article.title,
           description,
           content: article.content,
-          sort_order: article.sort_order,
         });
 
         await writeAuditLog({
@@ -185,7 +184,6 @@ export async function runImportWorker(
           title: rewritten.title,
           description: rewritten.description,
           content: rewritten.content,
-          sort_order: article.sort_order,
         });
 
         digitalArticles.push({ id: inserted.id, content: rewritten.content });
