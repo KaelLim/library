@@ -10,7 +10,7 @@ import rateLimit from '@fastify/rate-limit';
 import { runImportWorker } from './worker.js';
 import { buildExportUrl } from './services/google-docs.js';
 import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
-import { initSupabase, getBookByPdfPath, incrementBookHits } from './services/supabase.js';
+import { initSupabase, getBookByBookId, incrementBookHits } from './services/supabase.js';
 import { apiV1Routes } from './routes/api-v1.js';
 import { articleRoutes } from './routes/articles.js';
 import { bookRoutes } from './routes/books.js';
@@ -97,6 +97,7 @@ try {
 // 任何帶副檔名的路徑當成靜態檔（含 lib/st-page-flip/dist/js/page-flip.browser.js），
 // 其餘路徑視為 book UUID，載入並渲染模板。
 const STATIC_EXTENSIONS = /\.(css|js|mjs|map|mp3|png|jpg|jpeg|svg|woff2?|ttf)$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 fastify.get<{
   Params: { '*': string };
@@ -112,18 +113,22 @@ fastify.get<{
     return reply.sendFile(wildcard);
   }
 
-  const pdfPath = `books/${wildcard}.pdf`;
-
   if (!bookTemplate) {
     return reply.status(500).send({ error: 'Reader template not found' });
   }
 
-  const book = await getBookByPdfPath(pdfPath);
-  if (!book) {
+  if (!UUID_RE.test(wildcard)) {
     return reply.status(404).send({ error: 'Book not found' });
   }
 
-  const pdfSrc = `/storage/v1/object/public/books/${pdfPath}`;
+  // 用 book_id 查 row，pdf_path 從 row 拿（不能從 URL 反推：
+  // 部分書籍因重新上傳 PDF 導致 book_id ≠ pdf_path 內的 UUID）
+  const book = await getBookByBookId(wildcard);
+  if (!book || !book.pdf_path) {
+    return reply.status(404).send({ error: 'Book not found' });
+  }
+
+  const pdfSrc = `/storage/v1/object/public/books/${book.pdf_path}`;
   const ogImage = book.thumbnail_url || '';
   const ogDescription = book.introtext || '';
   const ogAuthor = book.author || '';

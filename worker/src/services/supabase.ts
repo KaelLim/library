@@ -489,6 +489,21 @@ export async function getBookByPdfPath(pdfPath: string): Promise<Book | null> {
 }
 
 /**
+ * 根據 book_id (UUID) 取得電子書
+ * Reader URL `/books/r/{book_id}` 用此函式查詢
+ */
+export async function getBookByBookId(bookId: string): Promise<Book | null> {
+  const { data, error } = await getSupabase()
+    .from('books')
+    .select('*')
+    .eq('book_id', bookId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as Book | null;
+}
+
+/**
  * 增加電子書點擊數
  */
 export async function incrementBookHits(bookId: number): Promise<void> {
