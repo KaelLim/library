@@ -447,6 +447,15 @@ export async function removeBookThumbnail(thumbnailUrl: string): Promise<void> {
 }
 
 /**
+ * 刪除 PDF 檔案（用於更新 PDF 時清理舊檔，避免 storage 孤兒）
+ * pdfPath 為 DB 內格式：`books/UUID.pdf`（不含 storage URL prefix）
+ */
+export async function removeBookPdf(pdfPath: string): Promise<void> {
+  if (!pdfPath) return;
+  await getSupabase().storage.from('books').remove([pdfPath]);
+}
+
+/**
  * 取得沒有縮圖的書籍
  */
 export async function getBooksWithoutThumbnail(limit = 20): Promise<Book[]> {

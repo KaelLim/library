@@ -13,6 +13,7 @@ import {
   uploadBookPdf,
   uploadBookThumbnail,
   removeBookThumbnail,
+  removeBookPdf,
   getBooksWithoutThumbnail,
   downloadBookPdf,
   insertAuditLog,
@@ -343,6 +344,203 @@ export const bookRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
   });
+
+  // 替換電子書 PDF（multipart，202 + broadcast）
+  // book_id 保持不變，pdf_path 指向新檔，舊 PDF 自動清除
+  fastify.post<{ Params: { id: string } }>(
+    '/:id/pdf',
+    { preHandler: [requireAuth], config: { rateLimit: { max: 20, timeWindow: '1 hour' } } },
+    async (request, reply) => {
+      const bookId = parseInt(request.params.id, 10);
+      const book = await getBookById(bookId);
+      if (!book) {
+        return reply.status(404).send({
+          error: 'BOOK_NOT_FOUND',
+          message: `Book ${bookId} not found`,
+        });
+      }
+
+      const fields: Record<string, string> = {};
+      let rawPdfBuffer: Buffer | null = null;
+      let coverBuffer: Buffer | null = null;
+
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === 'file') {
+            const chunks: Buffer[] = [];
+            for await (const chunk of part.file) chunks.push(chunk);
+            const buf = Buffer.concat(chunks);
+
+            if (part.fieldname === 'pdf_file') {
+              rawPdfBuffer = buf;
+            } else if (part.fieldname === 'cover_file') {
+              if (buf.length > MAX_COVER_SIZE) {
+                return reply.status(400).send({
+                  error: 'COVER_TOO_LARGE',
+                  message: `封面檔案超過上限 ${MAX_COVER_SIZE / 1024 / 1024}MB`,
+                });
+              }
+              if (!isSupportedImage(buf)) {
+                return reply.status(400).send({
+                  error: 'INVALID_COVER',
+                  message: '封面必須是 JPG、PNG 或 WebP 格式',
+                });
+              }
+              coverBuffer = buf;
+            }
+          } else if (part.type === 'field') {
+            const v = (part as { value: unknown }).value;
+            if (typeof v === 'string') fields[part.fieldname] = v;
+          }
+        }
+      } catch (err) {
+        request.log.error(err);
+        return reply.status(400).send({
+          error: 'UPLOAD_ERROR',
+          message: err instanceof Error ? err.message : '檔案讀取失敗',
+        });
+      }
+
+      if (!rawPdfBuffer) {
+        return reply.status(400).send({
+          error: 'MISSING_FILE',
+          message: 'pdf_file is required',
+        });
+      }
+
+      // Validate PDF magic bytes
+      if (rawPdfBuffer.length < 4 || rawPdfBuffer.toString('ascii', 0, 4) !== '%PDF') {
+        return reply.status(400).send({
+          error: 'INVALID_PDF',
+          message: '上傳的檔案不是有效的 PDF',
+        });
+      }
+
+      const taskId = randomUUID();
+      const regenerateThumbnail = fields.regenerate_thumbnail === 'true';
+
+      reply.status(202).send({
+        success: true,
+        message: 'PDF 已接收，後台處理中',
+        task_id: taskId,
+        book_id: bookId,
+      });
+
+      // 背景處理
+      (async () => {
+        const oldPdfPath = book.pdf_path;
+        const oldThumbnailUrl = book.thumbnail_url;
+        let newPdfPath: string | null = null;
+        let newThumbnailUrl: string | null = null;
+
+        try {
+          // 0. 壓縮 PDF
+          const VALID_QUALITIES = ['screen', 'ebook', 'printer', 'prepress'] as const;
+          type Quality = (typeof VALID_QUALITIES)[number];
+          const rawQuality = fields.compression_quality;
+          const compressionQuality: Quality = VALID_QUALITIES.includes(rawQuality as Quality)
+            ? (rawQuality as Quality)
+            : 'ebook';
+          const skipCompression = fields.skip_compression === 'true';
+
+          let pdfBuffer: Buffer = rawPdfBuffer;
+          let compressionInfo: { originalSize: number; compressedSize: number; ratio: number } | null = null;
+
+          if (!skipCompression) {
+            await broadcastBookUploadProgress(taskId, { step: 'compressing', progress: '壓縮 PDF 中...' });
+            const compressed = await compressPdf(rawPdfBuffer, { quality: compressionQuality });
+            pdfBuffer = Buffer.from(compressed.buffer);
+            compressionInfo = {
+              originalSize: compressed.originalSize,
+              compressedSize: compressed.compressedSize,
+              ratio: compressed.ratio,
+            };
+          }
+
+          // 1. 上傳新 PDF 到 Storage（新 UUID，但 books.book_id 不會改）
+          await broadcastBookUploadProgress(taskId, { step: 'uploading', progress: '上傳 PDF 中...' });
+          const storageResult = await uploadBookPdf(pdfBuffer);
+          newPdfPath = storageResult.path;
+
+          // 2. 縮圖處理：cover_file > regenerate_thumbnail > 保留舊縮圖
+          // 縮圖檔名沿用 book.book_id 維持 URL 穩定
+          let thumbnailFilenameUuid = book.book_id;
+          if (!thumbnailFilenameUuid && oldPdfPath) {
+            thumbnailFilenameUuid = oldPdfPath.replace(/^books\//, '').replace(/\.pdf$/, '');
+          }
+
+          if (coverBuffer && thumbnailFilenameUuid) {
+            await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '處理封面中...' });
+            const normalized = await normalizeCover(coverBuffer);
+            newThumbnailUrl = await uploadBookThumbnail(normalized.buffer, thumbnailFilenameUuid, normalized.format);
+          } else if (regenerateThumbnail && thumbnailFilenameUuid) {
+            await broadcastBookUploadProgress(taskId, { step: 'thumbnail', progress: '從新 PDF 擷取封面中...' });
+            const thumbBuffer = await extractPdfThumbnail(pdfBuffer);
+            if (thumbBuffer) {
+              newThumbnailUrl = await uploadBookThumbnail(thumbBuffer, thumbnailFilenameUuid, 'jpeg');
+            }
+          }
+
+          // 3. 更新 DB（只動 pdf_path 與必要時的 thumbnail_url，book_id 不變）
+          await broadcastBookUploadProgress(taskId, { step: 'saving', progress: '更新資料庫中...' });
+          const dbUpdates: { pdf_path: string; thumbnail_url?: string } = { pdf_path: newPdfPath };
+          if (newThumbnailUrl) dbUpdates.thumbnail_url = newThumbnailUrl;
+          const updated = await updateBook(bookId, dbUpdates);
+
+          // 4. 清理舊檔（DB 更新成功後才動，避免 rollback 困難）
+          if (oldPdfPath && oldPdfPath !== newPdfPath) {
+            await removeBookPdf(oldPdfPath).catch((err) => {
+              request.log.warn({ err, oldPdfPath }, '[Books] 清除舊 PDF 失敗');
+            });
+          }
+          if (newThumbnailUrl && oldThumbnailUrl && oldThumbnailUrl !== newThumbnailUrl) {
+            await removeBookThumbnail(oldThumbnailUrl).catch((err) => {
+              request.log.warn({ err, oldThumbnailUrl }, '[Books] 清除舊縮圖失敗');
+            });
+          }
+
+          // 5. Audit log
+          await insertAuditLog({
+            user_email: fields.user_email || null,
+            action: 'upload_pdf',
+            table_name: 'books',
+            record_id: bookId,
+            old_data: { pdf_path: oldPdfPath, thumbnail_url: oldThumbnailUrl },
+            new_data: { pdf_path: newPdfPath, thumbnail_url: newThumbnailUrl || oldThumbnailUrl },
+            metadata: {
+              compression: compressionInfo,
+              thumbnail_source: coverBuffer ? 'uploaded' : regenerateThumbnail ? 'pdf_first_page' : 'kept_old',
+            },
+          });
+
+          // 6. 廣播完成
+          await broadcastBookUploadProgress(taskId, {
+            step: 'completed',
+            progress: 'PDF 替換成功',
+            book: {
+              id: updated.id,
+              book_id: updated.book_id,
+              title: updated.title,
+              pdf_path: updated.pdf_path,
+              thumbnail_url: updated.thumbnail_url,
+            },
+          });
+        } catch (error) {
+          request.log.error({ err: error }, '[Books] PDF replace failed');
+
+          // 嘗試清掉本次上傳但未連到 DB 的新檔，避免孤兒
+          if (newPdfPath && newPdfPath !== oldPdfPath) {
+            await removeBookPdf(newPdfPath).catch(() => {});
+          }
+
+          await broadcastBookUploadProgress(taskId, {
+            step: 'failed',
+            error: error instanceof Error ? error.message : 'PDF 替換失敗',
+          }).catch(() => {});
+        }
+      })().catch(() => {});
+    },
+  );
 
   // 更新電子書封面（單獨 multipart 端點）
   fastify.post<{ Params: { id: string } }>(
