@@ -50,26 +50,70 @@ export async function getBookCategories(): Promise<BookCategory[]> {
   return data || [];
 }
 
+export interface BookListOptions {
+  categoryId?: number;
+  offset?: number;
+  limit?: number;
+}
+
+export interface BookListResult {
+  books: BookWithCategory[];
+  total: number;
+}
+
 /**
- * 取得書籍列表（含分類）
+ * 取得書籍列表（含分類，支援分頁）
  */
-export async function getBookList(categoryId?: number): Promise<BookWithCategory[]> {
+export async function getBookList(opts: BookListOptions = {}): Promise<BookListResult> {
+  const { categoryId, offset = 0, limit = 24 } = opts;
+
   let query = supabase
     .from('books')
-    .select(`
+    .select(
+      `
       *,
       category:books_category(*)
-    `)
+    `,
+      { count: 'exact' }
+    )
     .order('publish_date', { ascending: false });
 
   if (categoryId) {
     query = query.eq('category_id', categoryId);
   }
 
-  const { data, error } = await query;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
 
   if (error) throw error;
-  return data || [];
+  return { books: data || [], total: count ?? 0 };
+}
+
+/**
+ * 取得各分類 + 全部的書籍筆數（分頁 UI 的 tab count 用）
+ */
+export async function getBookCategoryCounts(
+  categories: BookCategory[]
+): Promise<Record<string, number>> {
+  const countQueries = [
+    supabase.from('books').select('id', { count: 'exact', head: true }),
+    ...categories.map((cat) =>
+      supabase
+        .from('books')
+        .select('id', { count: 'exact', head: true })
+        .eq('category_id', cat.id)
+    ),
+  ];
+
+  const results = await Promise.all(countQueries);
+
+  const counts: Record<string, number> = {};
+  counts.all = results[0].count ?? 0;
+  categories.forEach((cat, i) => {
+    counts[cat.id] = results[i + 1].count ?? 0;
+  });
+  return counts;
 }
 
 /**
@@ -141,6 +185,46 @@ export async function uploadBookCover(
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.message || '封面更新失敗');
+  }
+
+  return response.json();
+}
+
+/**
+ * 替換書籍 PDF（Worker multipart API，202 + 背景處理）
+ * 透過 subscribeToBookUploadProgress(task_id) 監聽進度
+ */
+export async function replaceBookPdf(
+  id: number,
+  pdfFile: File,
+  opts: {
+    coverFile?: File;
+    regenerateThumbnail?: boolean;
+    userEmail?: string;
+  } = {}
+): Promise<{ task_id: string; book_id: number }> {
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const token = authStore.session?.access_token || '';
+  const formData = new FormData();
+
+  // Text fields BEFORE file (見 @fastify/multipart 順序需求)
+  if (opts.regenerateThumbnail) formData.append('regenerate_thumbnail', 'true');
+  if (opts.userEmail) formData.append('user_email', opts.userEmail);
+  if (opts.coverFile) formData.append('cover_file', opts.coverFile);
+  formData.append('pdf_file', pdfFile);
+
+  const response = await fetch(`/worker/books/${id}/pdf`, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'PDF 替換失敗');
   }
 
   return response.json();

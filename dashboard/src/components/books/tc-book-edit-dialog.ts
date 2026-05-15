@@ -1,8 +1,11 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import type { BookWithCategory, BookCategory } from '../../services/books.js';
-import { getBookCategories, updateBook, uploadBookCover } from '../../services/books.js';
+import { getBookCategories, updateBook, uploadBookCover, replaceBookPdf } from '../../services/books.js';
+import { subscribeToBookUploadProgress, unsubscribeFromBookUploadProgress } from '../../services/realtime.js';
+import { authStore } from '../../stores/auth-store.js';
 import { toastStore } from '../../stores/toast-store.js';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import '../ui/tc-dialog.js';
 import '../ui/tc-button.js';
 import '../ui/tc-spinner.js';
@@ -329,7 +332,15 @@ export class TcBookEditDialog extends LitElement {
   @state() private selectedCover: File | null = null;
   @state() private coverPreview: string | null = null;
 
+  // PDF 替換
+  @state() private selectedPdf: File | null = null;
+  @state() private regenerateThumbnail = false;
+  @state() private pdfReplacing = false;
+  @state() private pdfStep = '';
+  private pdfChannel: RealtimeChannel | null = null;
+
   @query('#cover-edit-input') private coverInput!: HTMLInputElement;
+  @query('#pdf-replace-input') private pdfInput!: HTMLInputElement;
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
@@ -425,6 +436,67 @@ export class TcBookEditDialog extends LitElement {
                       <strong>點擊上傳</strong> 新封面（JPG / PNG / WebP，上限 10MB）
                     </div>
                     <div class="cover-hint">不選擇則保留原封面</div>
+                  </div>
+                `}
+          </div>
+
+          <!-- 替換 PDF -->
+          <div class="form-group full-width">
+            <label>替換 PDF 檔案</label>
+            <input
+              id="pdf-replace-input"
+              type="file"
+              accept="application/pdf"
+              style="display: none"
+              @change=${this.handlePdfChange}
+            />
+            ${this.selectedPdf
+              ? html`
+                  <div class="cover-preview">
+                    <div class="cover-preview-info">
+                      <span class="cover-badge">將替換現有 PDF（book_id 不變）</span>
+                      <div class="file-name">${this.selectedPdf.name}</div>
+                      <div class="file-size">${this.formatFileSize(this.selectedPdf.size)}</div>
+                      <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px;"
+                      >
+                        <input
+                          type="checkbox"
+                          ?checked=${this.regenerateThumbnail}
+                          ?disabled=${this.pdfReplacing}
+                          @change=${(e: Event) =>
+                            (this.regenerateThumbnail = (e.target as HTMLInputElement).checked)}
+                          style="margin: 0;"
+                        />
+                        從新 PDF 第一頁重生封面（若同時上傳封面圖則以上傳為準）
+                      </label>
+                      <div style="display: flex; gap: var(--spacing-2); margin-top: var(--spacing-2);">
+                        <tc-button
+                          variant="primary"
+                          size="sm"
+                          ?disabled=${this.pdfReplacing}
+                          @click=${this.handlePdfReplace}
+                        >
+                          ${this.pdfReplacing ? this.pdfStep || '替換中...' : '替換 PDF'}
+                        </tc-button>
+                        <tc-button
+                          variant="secondary"
+                          size="sm"
+                          ?disabled=${this.pdfReplacing}
+                          @click=${this.handlePdfRemove}
+                        >
+                          取消
+                        </tc-button>
+                      </div>
+                    </div>
+                  </div>
+                `
+              : html`
+                  <div class="file-upload" @click=${this.handlePdfClick}>
+                    <div class="file-upload-text">
+                      <strong>點擊選擇</strong> 新 PDF 檔案（上限 200MB）
+                    </div>
+                    <div class="cover-hint">替換後舊 PDF 會自動清除，閱讀連結維持不變</div>
                   </div>
                 `}
           </div>
@@ -671,6 +743,92 @@ export class TcBookEditDialog extends LitElement {
     if (this.coverInput) this.coverInput.value = '';
   }
 
+  private handlePdfClick(): void {
+    this.pdfInput?.click();
+  }
+
+  private handlePdfChange(e: Event): void {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      toastStore.error('檔案必須是 PDF');
+      input.value = '';
+      return;
+    }
+
+    const MAX_PDF_SIZE = 200 * 1024 * 1024;
+    if (file.size > MAX_PDF_SIZE) {
+      toastStore.error('PDF 大小不可超過 200MB');
+      input.value = '';
+      return;
+    }
+
+    this.selectedPdf = file;
+  }
+
+  private handlePdfRemove(): void {
+    this.selectedPdf = null;
+    this.regenerateThumbnail = false;
+    if (this.pdfInput) this.pdfInput.value = '';
+  }
+
+  private cleanupPdfChannel(): void {
+    if (this.pdfChannel) {
+      unsubscribeFromBookUploadProgress(this.pdfChannel);
+      this.pdfChannel = null;
+    }
+  }
+
+  private async handlePdfReplace(): Promise<void> {
+    if (!this.selectedPdf || !this.book || this.pdfReplacing) return;
+
+    this.pdfReplacing = true;
+    this.pdfStep = '上傳 PDF 中...';
+
+    const bookTitle = this.bookTitle.trim() || this.book.title;
+    const bookId = this.book.id;
+    const userEmail = authStore.user?.email;
+
+    try {
+      const result = await replaceBookPdf(bookId, this.selectedPdf, {
+        regenerateThumbnail: this.regenerateThumbnail,
+        userEmail,
+      });
+
+      toastStore.info(`「${bookTitle}」PDF 已接收，後台處理中...`);
+
+      this.cleanupPdfChannel();
+      this.pdfChannel = subscribeToBookUploadProgress(result.task_id, (update) => {
+        if (update.step === 'completed') {
+          toastStore.success(`「${bookTitle}」PDF 替換成功`);
+          this.dispatchEvent(
+            new CustomEvent('tc-book-updated', {
+              detail: { id: bookId, ...update.book },
+            })
+          );
+          this.handlePdfRemove();
+          this.pdfReplacing = false;
+          this.pdfStep = '';
+          this.cleanupPdfChannel();
+        } else if (update.step === 'failed') {
+          toastStore.error(update.error || 'PDF 替換失敗');
+          this.pdfReplacing = false;
+          this.pdfStep = '';
+          this.cleanupPdfChannel();
+        } else if (update.progress) {
+          this.pdfStep = update.progress;
+        }
+      });
+    } catch (error) {
+      console.error('PDF replace error:', error);
+      toastStore.error(error instanceof Error ? error.message : 'PDF 替換失敗');
+      this.pdfReplacing = false;
+      this.pdfStep = '';
+    }
+  }
+
   private formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -678,10 +836,15 @@ export class TcBookEditDialog extends LitElement {
   }
 
   private handleClose(): void {
-    if (!this.saving) {
-      this.handleCoverRemove();
-      this.dispatchEvent(new CustomEvent('tc-dialog-close'));
-    }
+    if (this.saving || this.pdfReplacing) return;
+    this.handleCoverRemove();
+    this.handlePdfRemove();
+    this.dispatchEvent(new CustomEvent('tc-dialog-close'));
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.cleanupPdfChannel();
   }
 
   private async handleSave(): Promise<void> {
