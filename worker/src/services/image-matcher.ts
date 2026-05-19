@@ -121,11 +121,16 @@ export async function matchAndReplaceImages(options: {
 
 ## Instructions
 
-1. Use the Read tool to view each image in both directories
-2. Compare them visually and match each low-res image to its high-res counterpart
+CRITICAL: To minimize turns, **read images in parallel batches**:
+- Issue MULTIPLE Read tool calls in a single response (parallel tool use).
+- Recommended: read up to 10 images per response. Do NOT read one at a time.
+- After reading all images, output the final JSON in one response.
+
+1. Use the Read tool with parallel calls to view images in both directories.
+2. Compare them visually and match each low-res image to its high-res counterpart.
 3. The high-res filenames are formatted as: {driveFileId}_{originalName}
 
-Output ONLY a JSON array (no other text):
+Output ONLY a JSON array (no other text) when matching is complete:
 [{"storage_filename":"image1.png","drive_file_id":"the-drive-id-part-before-underscore","drive_file_name":"originalName.jpg","confidence":"high"}]
 
 Rules:
@@ -133,12 +138,19 @@ Rules:
 - If no match exists, omit that image
 - Each Drive image can only match one Storage image`;
 
+    // maxTurns 預估：每回合可平行讀 ~5-10 張，加緩衝。
+    // 即使 Claude 未完全平行（每回合 3 張），公式仍夠用。
+    const totalImages = storageFilenames.length + driveFiles.length;
+    const estimatedTurns = Math.max(60, Math.ceil(totalImages / 3) + 20);
+
     const result = await runSessionWithStreaming(prompt, {
       weeklyId,
       model: 'claude-sonnet-4-20250514',
-      maxTurns: 30,
+      maxTurns: estimatedTurns,
       allowedTools: ['Read', 'Glob'],
     });
+
+    console.log(`[ImageMatcher] Used maxTurns=${estimatedTurns} for ${storageFilenames.length} low + ${driveFiles.length} high images`);
 
     console.log('[ImageMatcher] AI result length:', result.length);
     console.log('[ImageMatcher] AI result preview:', result.substring(0, 300));
