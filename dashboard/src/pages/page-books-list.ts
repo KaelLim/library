@@ -1,7 +1,12 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import type { BookWithCategory, BookCategory } from '../services/books.js';
-import { getBookList, getBookCategories, deleteBook } from '../services/books.js';
+import {
+  getBookList,
+  getBookCategories,
+  getBookCategoryCounts,
+  deleteBook,
+} from '../services/books.js';
 import { toastStore } from '../stores/toast-store.js';
 import '../components/layout/tc-app-shell.js';
 import '../components/ui/tc-button.js';
@@ -162,7 +167,38 @@ export class PageBooksList extends LitElement {
     .footer-buttons tc-button {
       flex: 1;
     }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--spacing-4);
+      margin-top: var(--spacing-6);
+      padding-top: var(--spacing-4);
+      border-top: 1px solid var(--color-border);
+      flex-wrap: wrap;
+    }
+
+    .pagination-info {
+      font-size: var(--font-size-sm);
+      color: var(--color-text-secondary);
+    }
+
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-3);
+    }
+
+    .pagination-pageno {
+      font-size: var(--font-size-sm);
+      color: var(--color-text-primary);
+      min-width: 4em;
+      text-align: center;
+    }
   `;
+
+  private static readonly PAGE_SIZE = 24;
 
   @state()
   private books: BookWithCategory[] = [];
@@ -171,10 +207,19 @@ export class PageBooksList extends LitElement {
   private categories: BookCategory[] = [];
 
   @state()
+  private counts: Record<string, number> = {};
+
+  @state()
   private loading = true;
 
   @state()
   private activeCategory: string = 'all';
+
+  @state()
+  private page = 0;
+
+  @state()
+  private total = 0;
 
   @state()
   private deleteTarget: BookWithCategory | null = null;
@@ -187,18 +232,23 @@ export class PageBooksList extends LitElement {
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
-    await this.loadData();
+    await this.loadInitial();
   }
 
-  private async loadData(): Promise<void> {
+  /** 第一次進頁面：抓 categories + counts + 第一頁 books */
+  private async loadInitial(): Promise<void> {
     this.loading = true;
     try {
-      const [books, categories] = await Promise.all([
-        getBookList(),
-        getBookCategories(),
-      ]);
-      this.books = books;
+      const categories = await getBookCategories();
       this.categories = categories;
+
+      const [result, counts] = await Promise.all([
+        getBookList({ limit: PageBooksList.PAGE_SIZE, offset: 0 }),
+        getBookCategoryCounts(categories),
+      ]);
+      this.books = result.books;
+      this.total = result.total;
+      this.counts = counts;
     } catch (error) {
       console.error('Error loading books:', error);
       toastStore.error('載入書籍列表失敗');
@@ -207,35 +257,57 @@ export class PageBooksList extends LitElement {
     }
   }
 
+  /** 換頁或切分類時：只重抓當前頁 books */
+  private async reloadPage(): Promise<void> {
+    this.loading = true;
+    try {
+      const categoryId =
+        this.activeCategory === 'all' ? undefined : Number(this.activeCategory);
+      const result = await getBookList({
+        categoryId,
+        limit: PageBooksList.PAGE_SIZE,
+        offset: this.page * PageBooksList.PAGE_SIZE,
+      });
+      this.books = result.books;
+      this.total = result.total;
+    } catch (error) {
+      console.error('Error loading books:', error);
+      toastStore.error('載入書籍列表失敗');
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  /** 增減書籍後：重抓 counts + 當前頁 */
+  private async refreshAfterMutation(): Promise<void> {
+    const counts = await getBookCategoryCounts(this.categories);
+    this.counts = counts;
+
+    // 若當前頁因刪除變空、且不是第一頁，退回上一頁
+    const currentTotal = this.activeCategory === 'all'
+      ? counts.all
+      : counts[this.activeCategory] ?? 0;
+    const maxPage = Math.max(0, Math.ceil(currentTotal / PageBooksList.PAGE_SIZE) - 1);
+    if (this.page > maxPage) {
+      this.page = maxPage;
+    }
+
+    await this.reloadPage();
+  }
+
   private get categoryTabs(): CategoryTab[] {
-    const counts = this.getCategoryCounts();
     return [
-      { id: 'all', label: '全部', count: counts.all },
+      { id: 'all', label: '全部', count: this.counts.all ?? 0 },
       ...this.categories.map((cat) => ({
         id: String(cat.id),
         label: cat.name,
-        count: counts[cat.id] || 0,
+        count: this.counts[cat.id] ?? 0,
       })),
     ];
   }
 
-  private getCategoryCounts(): Record<string, number> {
-    const counts: Record<string, number> = { all: this.books.length };
-    for (const book of this.books) {
-      if (book.category_id != null) {
-        counts[book.category_id] = (counts[book.category_id] || 0) + 1;
-      }
-    }
-    return counts;
-  }
-
-  private get filteredBooks(): BookWithCategory[] {
-    if (this.activeCategory === 'all') {
-      return this.books;
-    }
-    return this.books.filter(
-      (book) => String(book.category_id) === this.activeCategory
-    );
+  private get pageCount(): number {
+    return Math.max(1, Math.ceil(this.total / PageBooksList.PAGE_SIZE));
   }
 
   render() {
@@ -269,9 +341,11 @@ export class PageBooksList extends LitElement {
                 <tc-spinner size="lg"></tc-spinner>
               </div>
             `
-          : this.filteredBooks.length === 0
+          : this.books.length === 0
             ? this.renderEmpty()
-            : this.renderGrid()}
+            : html`
+                ${this.renderGrid()} ${this.renderPagination()}
+              `}
       </tc-app-shell>
 
       ${this.renderDeleteDialog()}
@@ -306,7 +380,41 @@ export class PageBooksList extends LitElement {
   private renderGrid() {
     return html`
       <div class="grid">
-        ${this.filteredBooks.map((book) => this.renderBookCard(book))}
+        ${this.books.map((book) => this.renderBookCard(book))}
+      </div>
+    `;
+  }
+
+  private renderPagination() {
+    if (this.pageCount <= 1) return '';
+    const start = this.page * PageBooksList.PAGE_SIZE + 1;
+    const end = Math.min(this.total, start + this.books.length - 1);
+    return html`
+      <div class="pagination">
+        <div class="pagination-info">
+          第 ${start}–${end} 筆 / 共 ${this.total} 本
+        </div>
+        <div class="pagination-controls">
+          <tc-button
+            variant="secondary"
+            size="sm"
+            ?disabled=${this.page === 0}
+            @click=${this.handlePrevPage}
+          >
+            上一頁
+          </tc-button>
+          <span class="pagination-pageno">
+            ${this.page + 1} / ${this.pageCount}
+          </span>
+          <tc-button
+            variant="secondary"
+            size="sm"
+            ?disabled=${this.page >= this.pageCount - 1}
+            @click=${this.handleNextPage}
+          >
+            下一頁
+          </tc-button>
+        </div>
       </div>
     `;
   }
@@ -380,8 +488,24 @@ export class PageBooksList extends LitElement {
     `;
   }
 
-  private handleTabChange(e: CustomEvent): void {
-    this.activeCategory = e.detail.tabId;
+  private async handleTabChange(e: CustomEvent): Promise<void> {
+    const nextCategory = e.detail.tabId;
+    if (nextCategory === this.activeCategory) return;
+    this.activeCategory = nextCategory;
+    this.page = 0;
+    await this.reloadPage();
+  }
+
+  private async handlePrevPage(): Promise<void> {
+    if (this.page === 0) return;
+    this.page -= 1;
+    await this.reloadPage();
+  }
+
+  private async handleNextPage(): Promise<void> {
+    if (this.page >= this.pageCount - 1) return;
+    this.page += 1;
+    await this.reloadPage();
   }
 
   private handleUpload(): void {
@@ -394,7 +518,7 @@ export class PageBooksList extends LitElement {
 
   private async handleBookCreated(): Promise<void> {
     this.showUploadDialog = false;
-    await this.loadData();
+    await this.refreshAfterMutation();
   }
 
   private handleView(book: BookWithCategory): void {
@@ -414,7 +538,7 @@ export class PageBooksList extends LitElement {
 
   private async handleBookUpdated(): Promise<void> {
     this.editTarget = null;
-    await this.loadData();
+    await this.refreshAfterMutation();
   }
 
   private handleDelete(book: BookWithCategory): void {
@@ -432,7 +556,7 @@ export class PageBooksList extends LitElement {
       await deleteBook(this.deleteTarget.id);
       toastStore.success('書籍已刪除');
       this.deleteTarget = null;
-      await this.loadData();
+      await this.refreshAfterMutation();
     } catch (error) {
       console.error('Delete error:', error);
       toastStore.error('刪除失敗');
