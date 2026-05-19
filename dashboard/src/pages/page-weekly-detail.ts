@@ -2,7 +2,13 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
 import type { Weekly, Article, Category, Platform } from '../types/index.js';
-import { getWeekly, updateWeeklyStatus } from '../services/weekly.js';
+import { getWeekly, updateWeeklyStatus, replaceWeeklyImages } from '../services/weekly.js';
+import {
+  subscribeToImageReplaceProgress,
+  unsubscribeFromImageReplaceProgress,
+  type ImageReplaceProgressUpdate,
+} from '../services/realtime.js';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
   getArticles,
   getCategories,
@@ -326,6 +332,26 @@ export class PageWeeklyDetail extends LitElement {
   @state()
   private pushBody = '';
 
+  // 補圖 dialog
+  @state()
+  private showReplaceImagesDialog = false;
+
+  @state()
+  private replaceDriveFolderUrl = '';
+
+  @state()
+  private replaceProgress: ImageReplaceProgressUpdate | null = null;
+
+  @state()
+  private replacing = false;
+
+  private replaceChannel: RealtimeChannel | null = null;
+
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.cleanupReplaceChannel();
+  }
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
@@ -457,6 +483,12 @@ export class PageWeeklyDetail extends LitElement {
               : ''}
             ${this.weekly?.status === 'published'
               ? html`
+                  <tc-button variant="outline" @click=${this.handleOpenReplaceImages}>
+                    <svg slot="icon" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px">
+                      <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    </svg>
+                    從 Drive 補圖
+                  </tc-button>
                   <tc-button variant="outline" @click=${this.handleUnpublish}>
                     <svg slot="icon" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px">
                       <path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
@@ -538,7 +570,152 @@ export class PageWeeklyDetail extends LitElement {
 
       ${this.renderArticlePushDialog()}
       ${this.renderPublishConfirm()}
+      ${this.renderReplaceImagesDialog()}
     `;
+  }
+
+  private renderReplaceImagesDialog() {
+    if (!this.showReplaceImagesDialog) return '';
+
+    const step = this.replaceProgress?.step;
+    const isCompleted = step === 'completed';
+    const isFailed = step === 'failed';
+    const folderValid = /\/folders\/([a-zA-Z0-9_-]+)/.test(this.replaceDriveFolderUrl);
+
+    return html`
+      <tc-dialog
+        open
+        dialogTitle="從 Drive 補圖"
+        size="md"
+        @tc-close=${this.handleCloseReplaceImages}
+      >
+        <div style="display:flex;flex-direction:column;gap:var(--spacing-3);">
+          <div style="font-size:var(--font-size-sm);color:var(--color-text-secondary);">
+            用 Drive 高解析度圖片替換本期文稿中的圖片（檔名不變，閱讀畫面圖片會自動更新）。
+          </div>
+          <div style="display:flex;flex-direction:column;gap:var(--spacing-1);">
+            <label style="font-size:var(--font-size-sm);font-weight:var(--font-weight-medium);">
+              Drive 資料夾 URL
+            </label>
+            <input
+              type="text"
+              .value=${this.replaceDriveFolderUrl}
+              placeholder="https://drive.google.com/drive/folders/..."
+              ?disabled=${this.replacing}
+              @input=${(e: Event) => (this.replaceDriveFolderUrl = (e.target as HTMLInputElement).value)}
+              style="padding:var(--spacing-2) var(--spacing-3);border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--font-size-sm);background:var(--color-bg-surface);color:var(--color-text-primary);"
+            />
+            ${this.weekly?.drive_folder_url && this.replaceDriveFolderUrl !== this.weekly.drive_folder_url
+              ? html`
+                  <div style="font-size:var(--font-size-xs);color:var(--color-text-muted);">
+                    本期上次使用的資料夾：${this.weekly.drive_folder_url}
+                  </div>
+                `
+              : ''}
+          </div>
+
+          ${this.replaceProgress
+            ? html`
+                <div
+                  style="padding:var(--spacing-3);border-radius:var(--radius-md);background:var(--color-bg-muted);font-size:var(--font-size-sm);"
+                >
+                  <div style="font-weight:var(--font-weight-medium);margin-bottom:4px;">
+                    ${isCompleted ? '✓ 完成' : isFailed ? '✗ 失敗' : '處理中...'}
+                  </div>
+                  <div style="color:var(--color-text-secondary);">
+                    ${this.replaceProgress.progress ||
+                    this.replaceProgress.error ||
+                    `step: ${step}`}
+                  </div>
+                  ${isCompleted && typeof this.replaceProgress.replaced === 'number'
+                    ? html`<div style="margin-top:4px;color:var(--color-success);">
+                        共替換 ${this.replaceProgress.replaced} 張圖片
+                      </div>`
+                    : ''}
+                </div>
+              `
+            : ''}
+        </div>
+
+        <div slot="footer" class="footer-buttons">
+          <tc-button
+            variant="secondary"
+            ?disabled=${this.replacing}
+            @click=${this.handleCloseReplaceImages}
+          >
+            ${isCompleted || isFailed ? '關閉' : '取消'}
+          </tc-button>
+          <tc-button
+            variant="primary"
+            ?disabled=${this.replacing || !folderValid || isCompleted}
+            @click=${this.handleStartReplaceImages}
+          >
+            ${this.replacing ? '處理中...' : isCompleted ? '已完成' : '開始補圖'}
+          </tc-button>
+        </div>
+      </tc-dialog>
+    `;
+  }
+
+  private handleOpenReplaceImages(): void {
+    this.replaceDriveFolderUrl = this.weekly?.drive_folder_url || '';
+    this.replaceProgress = null;
+    this.showReplaceImagesDialog = true;
+  }
+
+  private handleCloseReplaceImages(): void {
+    if (this.replacing) return;
+    this.showReplaceImagesDialog = false;
+    this.replaceProgress = null;
+    this.cleanupReplaceChannel();
+  }
+
+  private cleanupReplaceChannel(): void {
+    if (this.replaceChannel) {
+      unsubscribeFromImageReplaceProgress(this.replaceChannel);
+      this.replaceChannel = null;
+    }
+  }
+
+  private async handleStartReplaceImages(): Promise<void> {
+    if (this.replacing || !this.weekly) return;
+    const url = this.replaceDriveFolderUrl.trim();
+    if (!/\/folders\/([a-zA-Z0-9_-]+)/.test(url)) {
+      toastStore.error('請輸入有效的 Drive 資料夾 URL');
+      return;
+    }
+
+    this.replacing = true;
+    this.replaceProgress = { step: 'preparing', progress: '送出請求...' };
+
+    try {
+      const result = await replaceWeeklyImages(this.weekly.week_number, {
+        driveFolderUrl: url,
+        userEmail: authStore.userEmail || undefined,
+      });
+
+      // 訂閱進度 channel
+      this.cleanupReplaceChannel();
+      this.replaceChannel = subscribeToImageReplaceProgress(result.task_id, (update) => {
+        this.replaceProgress = update;
+        if (update.step === 'completed') {
+          this.replacing = false;
+          toastStore.success(`補圖完成，共替換 ${update.replaced ?? 0} 張圖片`);
+          // 更新本地 weekly 的 drive_folder_url
+          if (this.weekly) {
+            this.weekly = { ...this.weekly, drive_folder_url: url };
+          }
+        } else if (update.step === 'failed') {
+          this.replacing = false;
+          toastStore.error(update.error || '補圖失敗');
+        }
+      });
+    } catch (error) {
+      console.error('Replace images error:', error);
+      toastStore.error(error instanceof Error ? error.message : '補圖失敗');
+      this.replacing = false;
+      this.replaceProgress = null;
+    }
   }
 
   private renderArticlePushDialog() {

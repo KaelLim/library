@@ -10,6 +10,7 @@ import { generateArticleAudio } from './services/tts.js';
 import {
   initSupabase,
   getOrCreateWeekly,
+  setWeeklyDriveFolderUrl,
   insertArticle,
   uploadMarkdown,
   writeAuditLog,
@@ -81,6 +82,15 @@ export async function runImportWorker(
 
     // 確保 weekly 存在
     await getOrCreateWeekly(weeklyId);
+
+    // 記住 Drive 資料夾，方便日後補圖
+    if (options.driveFolderUrl) {
+      try {
+        await setWeeklyDriveFolderUrl(weeklyId, options.driveFolderUrl);
+      } catch (err) {
+        console.warn('[Import] Failed to save drive_folder_url to weekly:', err);
+      }
+    }
 
     // 記錄 import 開始
     await writeAuditLog({

@@ -22,6 +22,7 @@ export interface Weekly {
   week_number: number;
   status: 'draft' | 'published' | 'archived';
   publish_date: string | null;
+  drive_folder_url: string | null;
   created_at: string;
   updated_at: string;
 }

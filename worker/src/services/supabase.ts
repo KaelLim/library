@@ -48,6 +48,34 @@ export async function getOrCreateWeekly(weekNumber: number): Promise<Weekly> {
   return data as Weekly;
 }
 
+export async function getWeekly(weekNumber: number): Promise<Weekly | null> {
+  const { data, error } = await getSupabase()
+    .from('weekly')
+    .select('*')
+    .eq('week_number', weekNumber)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as Weekly) || null;
+}
+
+export async function setWeeklyDriveFolderUrl(weekNumber: number, url: string): Promise<void> {
+  const { error } = await getSupabase()
+    .from('weekly')
+    .update({ drive_folder_url: url })
+    .eq('week_number', weekNumber);
+  if (error) throw error;
+}
+
+/**
+ * 從 storage 下載 markdown 檔（articles/{weeklyId}/{filename}）
+ */
+export async function downloadMarkdown(weeklyId: number, filename: string): Promise<string | null> {
+  const path = `articles/${weeklyId}/${filename}`;
+  const { data, error } = await getSupabase().storage.from('weekly').download(path);
+  if (error || !data) return null;
+  return await data.text();
+}
+
 // =====================
 // Category 操作
 // =====================
@@ -258,6 +286,22 @@ export async function broadcastBookUploadProgress(
   data: { step: 'compressing' | 'uploading' | 'thumbnail' | 'saving' | 'completed' | 'failed'; progress?: string; error?: string; book?: Record<string, unknown> }
 ): Promise<void> {
   const channel = getSupabase().channel(`book-upload:${taskId}`);
+
+  await channel.send({
+    type: 'broadcast',
+    event: 'progress',
+    payload: data,
+  });
+}
+
+/**
+ * 廣播圖片替換進度到 Realtime channel（補圖功能用）
+ */
+export async function broadcastImageReplaceProgress(
+  taskId: string,
+  data: { step: 'preparing' | 'matching' | 'replacing' | 'completed' | 'failed'; progress?: string; error?: string; replaced?: number }
+): Promise<void> {
+  const channel = getSupabase().channel(`image-replace:${taskId}`);
 
   await channel.send({
     type: 'broadcast',

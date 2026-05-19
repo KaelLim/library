@@ -4,6 +4,7 @@ export interface Weekly {
   week_number: number;
   status: 'draft' | 'published' | 'archived';
   publish_date: string | null;
+  drive_folder_url: string | null;
   import_step: string | null;
   import_progress: string | null;
   created_at: string;

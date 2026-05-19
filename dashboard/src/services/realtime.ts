@@ -141,6 +141,37 @@ export function unsubscribeFromBookUploadProgress(channel: RealtimeChannel): voi
   supabase.removeChannel(channel);
 }
 
+// =====================
+// Image Replace (補圖)
+// =====================
+
+export interface ImageReplaceProgressUpdate {
+  step: 'preparing' | 'matching' | 'replacing' | 'completed' | 'failed';
+  progress?: string;
+  error?: string;
+  replaced?: number;
+}
+
+export type ImageReplaceProgressCallback = (update: ImageReplaceProgressUpdate) => void;
+
+export function subscribeToImageReplaceProgress(
+  taskId: string,
+  callback: ImageReplaceProgressCallback
+): RealtimeChannel {
+  const channel = supabase
+    .channel(`image-replace:${taskId}`)
+    .on('broadcast', { event: 'progress' }, (payload) => {
+      callback(payload.payload as ImageReplaceProgressUpdate);
+    })
+    .subscribe();
+
+  return channel;
+}
+
+export function unsubscribeFromImageReplaceProgress(channel: RealtimeChannel): void {
+  supabase.removeChannel(channel);
+}
+
 /**
  * 從 weekly 表讀取當前匯入狀態
  */

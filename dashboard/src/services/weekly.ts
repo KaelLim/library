@@ -1,5 +1,6 @@
 import { supabase } from './supabase.js';
 import type { Weekly, WeeklyStatus } from '../types/index.js';
+import { authStore } from '../stores/auth-store.js';
 
 export interface WeeklyWithCount extends Weekly {
   article_count?: number;
@@ -175,4 +176,37 @@ export async function getNextWeekNumber(): Promise<number> {
   }
 
   return data[0].week_number + 1;
+}
+
+/**
+ * 觸發補圖（Drive 高解析度圖片替換）— 已上架週報用
+ * 回應 202 + task_id；用 subscribeToImageReplaceProgress 監聽進度
+ */
+export async function replaceWeeklyImages(
+  weekNumber: number,
+  opts: { driveFolderUrl?: string; userEmail?: string } = {}
+): Promise<{ task_id: string; weekly_id: number }> {
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const token = authStore.session?.access_token || '';
+
+  const body: Record<string, string> = {};
+  if (opts.driveFolderUrl) body.drive_folder_url = opts.driveFolderUrl;
+  if (authStore.providerToken) body.provider_token = authStore.providerToken;
+  if (opts.userEmail) body.user_email = opts.userEmail;
+
+  const response = await fetch(`/worker/weekly/${weekNumber}/replace-images`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || '補圖失敗');
+  }
+  return response.json();
 }

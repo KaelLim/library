@@ -15,6 +15,7 @@ import { isServiceAccountConfigured } from './services/google-drive-auth.js';
 import { apiV1Routes } from './routes/api-v1.js';
 import { articleRoutes } from './routes/articles.js';
 import { bookRoutes } from './routes/books.js';
+import { weeklyRoutes } from './routes/weekly.js';
 import { requireAuth } from './middleware/auth.js';
 
 // Initialize Supabase
@@ -198,6 +199,9 @@ await fastify.register(articleRoutes);
 
 // Book routes (CRUD, thumbnails)
 await fastify.register(bookRoutes, { prefix: '/books' });
+
+// Weekly routes (replace-images, etc.)
+await fastify.register(weeklyRoutes, { prefix: '/weekly' });
 
 // Health check
 fastify.get('/health', async () => {
