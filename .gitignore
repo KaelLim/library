@@ -5,6 +5,11 @@ drive-batch/
 *.py
 firebase-service-account.json
 
+# Google Cloud / Drive service account keys（任意檔名都擋）
+*-service-account*.json
+tzuchi-weekly-*.json
+driveapi*.json
+
 # Environment files
 .env
 .env.local

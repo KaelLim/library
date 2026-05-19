@@ -11,6 +11,7 @@ import { runImportWorker } from './worker.js';
 import { buildExportUrl } from './services/google-docs.js';
 import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
 import { initSupabase, getBookByBookId, incrementBookHits } from './services/supabase.js';
+import { isServiceAccountConfigured } from './services/google-drive-auth.js';
 import { apiV1Routes } from './routes/api-v1.js';
 import { articleRoutes } from './routes/articles.js';
 import { bookRoutes } from './routes/books.js';
@@ -203,6 +204,13 @@ fastify.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() };
 });
 
+// Drive 認證模式（給 dashboard 顯示「SA 處理」或「需要 OAuth」用）
+fastify.get('/drive/status', async () => {
+  return {
+    service_account: isServiceAccountConfigured(),
+  };
+});
+
 // Track last AI activity (used by session-streamer idle timeout)
 export function updateAiActivity(): void {
   // no-op: auto-logout removed, kept for session-streamer compatibility
@@ -280,7 +288,7 @@ fastify.post<{
     doc_url: string;
     weekly_id?: number;
     user_email?: string;
-    drive_folder_url?: string;
+    drive_folder_url: string;
     provider_token?: string;
   };
 }>('/import', {
@@ -289,7 +297,7 @@ fastify.post<{
   schema: {
     body: {
       type: 'object',
-      required: ['doc_url'],
+      required: ['doc_url', 'drive_folder_url'],
       properties: {
         doc_url: { type: 'string' },
         weekly_id: { type: 'integer' },
@@ -302,12 +310,28 @@ fastify.post<{
 }, async (request, reply) => {
   const { doc_url, weekly_id, user_email, drive_folder_url, provider_token } = request.body;
 
-  console.log(`[Import] weekly_id=${weekly_id}, drive_folder_url=${drive_folder_url ? 'YES' : 'NO'}, provider_token=${provider_token ? 'YES' : 'NO'}`);
+  const saConfigured = isServiceAccountConfigured();
+  console.log(`[Import] weekly_id=${weekly_id}, drive_folder_url=YES, sa=${saConfigured ? 'YES' : 'NO'}, provider_token=${provider_token ? 'YES' : 'NO'}`);
 
   if (!doc_url) {
     return reply.status(400).send({
       error: 'MISSING_DOC_URL',
       message: 'doc_url is required',
+    });
+  }
+
+  if (!drive_folder_url || !/\/folders\/([a-zA-Z0-9_-]+)/.test(drive_folder_url)) {
+    return reply.status(400).send({
+      error: 'INVALID_DRIVE_FOLDER_URL',
+      message: '請提供有效的 Google Drive 資料夾 URL',
+    });
+  }
+
+  // 至少一種 Drive 認證：service account 或 user OAuth provider_token
+  if (!saConfigured && !provider_token) {
+    return reply.status(400).send({
+      error: 'NO_DRIVE_AUTH',
+      message: 'Drive 認證不足：service account 未設定且 user OAuth token 缺失',
     });
   }
 

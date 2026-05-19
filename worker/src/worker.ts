@@ -2,6 +2,7 @@ import { loadMarkdownFromFile, extractWeeklyId, downloadMarkdownFromGoogleDocs }
 import { processAllImages } from './services/image-processor.js';
 import { matchAndReplaceImages } from './services/image-matcher.js';
 import { extractFolderId } from './services/google-drive.js';
+import { getServiceAccessToken, isServiceAccountConfigured } from './services/google-drive-auth.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { cleanupChannel } from './services/session-streamer.js';
@@ -96,26 +97,52 @@ export async function runImportWorker(
     await updateProgress('converting_images', '轉換圖片中...');
     const markdownWithUrls = await processAllImages(rawMarkdown, weeklyId);
 
-    // 2.5 替換高解析度圖片（如果提供了 Drive 資料夾）
-    if (options.driveFolderUrl && options.providerToken) {
+    // 2.5 替換高解析度圖片
+    // 優先用 service account；無設定時 fallback 到 user provider_token
+    if (options.driveFolderUrl) {
       const driveFolderId = extractFolderId(options.driveFolderUrl);
       if (driveFolderId) {
         await updateProgress('replacing_images', '準備替換高解析度圖片...');
+
+        let driveToken: string | null = null;
+        let driveTokenSource = '';
         try {
-          const replaced = await matchAndReplaceImages({
-            weeklyId,
-            markdown: markdownWithUrls,
-            providerToken: options.providerToken,
-            driveFolderId,
-            onProgress: async (msg) => {
-              await updateProgress('replacing_images', msg);
-            },
-          });
-          console.log(`[replacing_images] Replaced ${replaced} images with high-res versions`);
-        } catch (error) {
-          // 圖片替換失敗不應阻止整個匯入流程
-          console.error('[replacing_images] Error:', error);
-          await updateProgress('replacing_images', '圖片替換失敗，繼續匯入...', undefined);
+          if (isServiceAccountConfigured()) {
+            driveToken = await getServiceAccessToken();
+            driveTokenSource = 'service_account';
+          }
+        } catch (err) {
+          console.warn('[replacing_images] Service account token failed, will try user token:', err);
+        }
+        if (!driveToken && options.providerToken) {
+          driveToken = options.providerToken;
+          driveTokenSource = 'user_oauth';
+        }
+
+        if (!driveToken) {
+          await updateProgress(
+            'replacing_images',
+            '無 Drive 認證（service account 未設定且使用者未授權），跳過替換',
+            undefined,
+          );
+        } else {
+          console.log(`[replacing_images] Using ${driveTokenSource} for Drive auth`);
+          try {
+            const replaced = await matchAndReplaceImages({
+              weeklyId,
+              markdown: markdownWithUrls,
+              providerToken: driveToken,
+              driveFolderId,
+              onProgress: async (msg) => {
+                await updateProgress('replacing_images', msg);
+              },
+            });
+            console.log(`[replacing_images] Replaced ${replaced} images with high-res versions`);
+          } catch (error) {
+            // 圖片替換失敗不應阻止整個匯入流程
+            console.error('[replacing_images] Error:', error);
+            await updateProgress('replacing_images', '圖片替換失敗，繼續匯入...', undefined);
+          }
         }
       }
     }

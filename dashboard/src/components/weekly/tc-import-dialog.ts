@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
-import { isValidDocUrl, startImport, checkClaudeStatus } from '../../services/worker.js';
+import { isValidDocUrl, isValidDriveFolderUrl, startImport, checkClaudeStatus, checkDriveStatus } from '../../services/worker.js';
 import { getNextWeekNumber } from '../../services/weekly.js';
 import { authStore } from '../../stores/auth-store.js';
 import { toastStore } from '../../stores/toast-store.js';
@@ -106,7 +106,13 @@ export class TcImportDialog extends LitElement {
   private urlError = '';
 
   @state()
+  private folderError = '';
+
+  @state()
   private claudeAuthenticated: boolean | null = null; // null = checking
+
+  @state()
+  private driveServiceAccount: boolean | null = null; // null = checking
 
   @query('tc-dialog')
   private dialog!: HTMLElement & { close: () => void };
@@ -119,6 +125,7 @@ export class TcImportDialog extends LitElement {
   updated(changedProperties: Map<string, unknown>): void {
     if (changedProperties.has('open') && this.open) {
       this.checkClaude();
+      this.checkDrive();
     }
   }
 
@@ -149,9 +156,11 @@ export class TcImportDialog extends LitElement {
           ></tc-input>
 
           <tc-input
-            label="圖片資料夾 URL（選填）"
+            label="圖片資料夾 URL"
             placeholder="https://drive.google.com/drive/folders/..."
             .value=${this.driveFolderUrl}
+            .error=${this.folderError}
+            required
             @tc-input=${this.handleFolderInput}
           ></tc-input>
 
@@ -189,7 +198,13 @@ export class TcImportDialog extends LitElement {
   }
 
   private get isValid(): boolean {
-    return isValidDocUrl(this.docUrl) && this.weekNumber > 0 && this.claudeAuthenticated === true && this.hasDriveToken;
+    // Drive 授權狀態僅顯示，不阻擋送出（worker 端會用 service account fallback）
+    return (
+      isValidDocUrl(this.docUrl) &&
+      isValidDriveFolderUrl(this.driveFolderUrl) &&
+      this.weekNumber > 0 &&
+      this.claudeAuthenticated === true
+    );
   }
 
   private get hasDriveToken(): boolean {
@@ -207,12 +222,18 @@ export class TcImportDialog extends LitElement {
   }
 
   private renderDriveStatus() {
+    if (this.driveServiceAccount === null) {
+      return html`<div class="claude-status checking">檢查 Drive 認證...</div>`;
+    }
+    if (this.driveServiceAccount) {
+      return html`<div class="claude-status ok">Drive 已透過服務帳號處理</div>`;
+    }
     if (this.hasDriveToken) {
-      return html`<div class="claude-status ok">Google Drive 已授權</div>`;
+      return html`<div class="claude-status ok">Google Drive 已授權（OAuth）</div>`;
     }
     return html`
       <div class="claude-status error status-row">
-        <span>Google Drive 尚未授權</span>
+        <span>Drive 尚未授權（服務帳號未設定）</span>
         <button class="relogin-btn" @click=${this.handleReloginGoogle}>重新登入</button>
       </div>
     `;
@@ -232,6 +253,16 @@ export class TcImportDialog extends LitElement {
     }
   }
 
+  private async checkDrive(): Promise<void> {
+    this.driveServiceAccount = null;
+    try {
+      const status = await checkDriveStatus();
+      this.driveServiceAccount = status.service_account;
+    } catch {
+      this.driveServiceAccount = false;
+    }
+  }
+
   private handleUrlInput(e: CustomEvent): void {
     this.docUrl = e.detail.value;
     if (this.docUrl && !isValidDocUrl(this.docUrl)) {
@@ -243,6 +274,11 @@ export class TcImportDialog extends LitElement {
 
   private handleFolderInput(e: CustomEvent): void {
     this.driveFolderUrl = e.detail.value;
+    if (this.driveFolderUrl && !isValidDriveFolderUrl(this.driveFolderUrl)) {
+      this.folderError = '請輸入有效的 Google Drive 資料夾 URL（含 /folders/...）';
+    } else {
+      this.folderError = '';
+    }
   }
 
   private handleWeekInput(e: CustomEvent): void {
@@ -269,8 +305,9 @@ export class TcImportDialog extends LitElement {
         doc_url: this.docUrl,
         weekly_id: this.weekNumber,
         user_email: authStore.userEmail || 'unknown',
-        drive_folder_url: this.driveFolderUrl || undefined,
-        provider_token: this.driveFolderUrl ? (authStore.providerToken || undefined) : undefined,
+        drive_folder_url: this.driveFolderUrl,
+        // service account 為主、user OAuth 為輔；token 有的話順便帶上做 fallback
+        provider_token: authStore.providerToken || undefined,
       });
 
       toastStore.success('匯入已開始');
@@ -289,6 +326,7 @@ export class TcImportDialog extends LitElement {
     this.docUrl = '';
     this.driveFolderUrl = '';
     this.urlError = '';
+    this.folderError = '';
     this.loadNextWeekNumber();
     this.checkClaude();
   }

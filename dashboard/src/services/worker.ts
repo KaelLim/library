@@ -117,10 +117,27 @@ export function isValidDocUrl(url: string): boolean {
   return extractDocId(url) !== null;
 }
 
+export function isValidDriveFolderUrl(url: string): boolean {
+  return /\/folders\/([a-zA-Z0-9_-]+)/.test(url);
+}
+
 export interface ClaudeStatusResponse {
   authenticated: boolean;
   message: string;
   detail?: string;
+}
+
+export interface DriveStatusResponse {
+  service_account: boolean;
+}
+
+export async function checkDriveStatus(): Promise<DriveStatusResponse> {
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const response = await fetch('/worker/drive/status', {
+    headers: { apikey: anonKey },
+  });
+  if (!response.ok) return { service_account: false };
+  return response.json();
 }
 
 export async function checkClaudeStatus(): Promise<ClaudeStatusResponse> {
