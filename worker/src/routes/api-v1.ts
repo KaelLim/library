@@ -1,9 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { getSupabase, insertAuditLog } from '../services/supabase.js';
+import { getSupabase, insertAuditLog, getBookById } from '../services/supabase.js';
 import { subscribeToken, unsubscribeToken, sendPushNotification } from '../services/push-notification.js';
 import { requireAuth } from '../middleware/auth.js';
+import {
+  MAX_COVER_SIZE,
+  isSupportedImage,
+  startBookCreate,
+  startBookPdfReplace,
+} from '../services/book-upload.js';
 
 const PUBLIC_BASE = process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000';
 
@@ -50,12 +56,13 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     openapi: {
       info: {
         title: '慈濟週報 Public API',
-        description: '週報、文章、電子書公開唯讀 API',
+        description: '週報、文章、電子書 API（讀取公開、上傳需授權）',
         version: '1.0.0',
       },
       tags: [
         { name: '週報', description: '週報、文章、分類' },
         { name: '電子書', description: '電子書與電子書分類' },
+        { name: '電子書上傳', description: '電子書上傳 / 替換 PDF（需授權）' },
       ],
     },
   });
@@ -489,6 +496,261 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       thumbnail_url: toPublicUrl(data.thumbnail_url, 'books'),
       reader_url: data.book_id ? `${PUBLIC_BASE}/books/r/${data.book_id}` : null,
     };
+  });
+
+  // POST /books - 上傳新電子書（multipart/form-data，202 + task_id 廣播進度）
+  fastify.post('/books', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 20, timeWindow: '1 hour' } },
+    schema: {
+      tags: ['電子書上傳'],
+      summary: '上傳新電子書',
+      description: [
+        '使用 multipart/form-data 上傳 PDF 檔，背景進行壓縮 / 縮圖 / 寫入資料庫。',
+        '立即回 202 + `task_id`，可訂閱 Supabase Realtime channel `book-upload:{task_id}` 監聽進度。',
+        '步驟事件：`compressing` → `uploading` → `thumbnail` → `saving` → `completed`（或 `failed`）。',
+      ].join('\n\n'),
+      consumes: ['multipart/form-data'],
+      body: {
+        type: 'object',
+        required: ['pdf_file', 'title'],
+        properties: {
+          pdf_file: { type: 'string', format: 'binary', description: 'PDF 檔（必填）' },
+          cover_file: { type: 'string', format: 'binary', description: '封面圖（可選；JPG/PNG/WebP，<=10MB）' },
+          title: { type: 'string', description: '書名（必填）' },
+          category_id: { type: 'string', description: '分類 ID（與 category_slug 擇一）' },
+          category_slug: { type: 'string', description: '分類 slug（與 category_id 擇一）' },
+          introtext: { type: 'string', description: '簡介' },
+          description: { type: 'string', description: '簡介（introtext 的別名）' },
+          catalogue: { type: 'string', description: '目錄' },
+          author: { type: 'string', description: '作者' },
+          author_introtext: { type: 'string', description: '作者簡介' },
+          publisher: { type: 'string', description: '出版社' },
+          book_date: { type: 'string', description: '出版日期（YYYY-MM-DD）' },
+          isbn: { type: 'string', description: 'ISBN' },
+          language: { type: 'string', default: 'zh-TW', description: '語言（預設 zh-TW）' },
+          turn_page: { type: 'string', enum: ['left', 'right'], default: 'left', description: '翻頁方向：left=中文右翻左，right=英文左翻右' },
+          copyright: { type: 'string', description: '版權聲明' },
+          download: { type: 'string', enum: ['true', 'false'], default: 'true', description: '是否允許下載' },
+          online_purchase: { type: 'string', description: '線上購買連結' },
+          publish_date: { type: 'string', description: '上架日期（YYYY-MM-DD）' },
+          thumbnail_url: { type: 'string', description: '已有縮圖 URL（提供時跳過自動產生）' },
+          skip_compression: { type: 'string', enum: ['true', 'false'], default: 'false', description: '是否略過 PDF 壓縮' },
+          compression_quality: { type: 'string', enum: ['screen', 'ebook', 'printer', 'prepress'], default: 'ebook', description: 'PDF 壓縮品質' },
+          user_email: { type: 'string', description: '寫入 audit log 的使用者 email' },
+        },
+      },
+      response: {
+        202: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            task_id: { type: 'string', description: 'Realtime 廣播 channel ID' },
+            title: { type: 'string' },
+          },
+        },
+        400: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const fields: Record<string, string> = {};
+    let rawPdfBuffer: Buffer | null = null;
+    let pdfFilename = '';
+    let coverBuffer: Buffer | null = null;
+
+    try {
+      for await (const part of request.parts()) {
+        if (part.type === 'file') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) chunks.push(chunk);
+          const buf = Buffer.concat(chunks);
+
+          if (part.fieldname === 'pdf_file') {
+            rawPdfBuffer = buf;
+            pdfFilename = part.filename;
+          } else if (part.fieldname === 'cover_file') {
+            if (buf.length > MAX_COVER_SIZE) {
+              return reply.status(400).send({
+                error: 'COVER_TOO_LARGE',
+                message: `封面檔案超過上限 ${MAX_COVER_SIZE / 1024 / 1024}MB`,
+              });
+            }
+            if (!isSupportedImage(buf)) {
+              return reply.status(400).send({
+                error: 'INVALID_COVER',
+                message: '封面必須是 JPG、PNG 或 WebP 格式',
+              });
+            }
+            coverBuffer = buf;
+          }
+        } else if (part.type === 'field') {
+          const v = (part as { value: unknown }).value;
+          if (typeof v === 'string') fields[part.fieldname] = v;
+        }
+      }
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(400).send({
+        error: 'UPLOAD_ERROR',
+        message: err instanceof Error ? err.message : '檔案讀取失敗',
+      });
+    }
+
+    if (!rawPdfBuffer) {
+      return reply.status(400).send({ error: 'MISSING_FILE', message: 'pdf_file is required' });
+    }
+    if (!fields.title) {
+      return reply.status(400).send({ error: 'MISSING_TITLE', message: 'title is required' });
+    }
+
+    let result;
+    try {
+      result = startBookCreate({ rawPdfBuffer, pdfFilename, coverBuffer, fields, log: request.log });
+    } catch (err) {
+      return reply.status(400).send({
+        error: 'INVALID_PDF',
+        message: err instanceof Error ? err.message : '上傳的檔案不是有效的 PDF',
+      });
+    }
+
+    return reply.status(202).send({
+      success: true,
+      message: '檔案已接收，後台處理中',
+      task_id: result.taskId,
+      title: result.title,
+    });
+  });
+
+  // POST /books/:id/pdf - 替換電子書 PDF
+  fastify.post<{ Params: { id: string } }>('/books/:id/pdf', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 20, timeWindow: '1 hour' } },
+    schema: {
+      tags: ['電子書上傳'],
+      summary: '替換電子書 PDF',
+      description: [
+        '替換現有電子書的 PDF 檔。**`book_id` 保持不變**，因此外部 reader URL `/books/r/{book_id}` 永遠有效。',
+        '舊 PDF 在 DB 更新成功後才會自動清除。回 202 + `task_id`，訂閱 channel `book-upload:{task_id}` 監聽進度。',
+      ].join('\n\n'),
+      consumes: ['multipart/form-data'],
+      params: {
+        type: 'object',
+        properties: { id: { type: 'string', description: '電子書 ID（books.id）' } },
+        required: ['id'],
+      },
+      body: {
+        type: 'object',
+        required: ['pdf_file'],
+        properties: {
+          pdf_file: { type: 'string', format: 'binary', description: 'PDF 檔（必填）' },
+          cover_file: { type: 'string', format: 'binary', description: '新封面圖（可選；提供時覆蓋舊縮圖）' },
+          regenerate_thumbnail: { type: 'string', enum: ['true', 'false'], default: 'false', description: '未提供 cover_file 時，是否從新 PDF 第一頁重新擷取縮圖' },
+          skip_compression: { type: 'string', enum: ['true', 'false'], default: 'false', description: '是否略過 PDF 壓縮' },
+          compression_quality: { type: 'string', enum: ['screen', 'ebook', 'printer', 'prepress'], default: 'ebook', description: 'PDF 壓縮品質' },
+          user_email: { type: 'string', description: '寫入 audit log 的使用者 email' },
+        },
+      },
+      response: {
+        202: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            task_id: { type: 'string', description: 'Realtime 廣播 channel ID' },
+            book_id: { type: 'number' },
+          },
+        },
+        400: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+        404: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const bookId = parseInt(request.params.id, 10);
+    const book = await getBookById(bookId);
+    if (!book) {
+      return reply.status(404).send({ error: 'BOOK_NOT_FOUND', message: `Book ${bookId} not found` });
+    }
+
+    const fields: Record<string, string> = {};
+    let rawPdfBuffer: Buffer | null = null;
+    let coverBuffer: Buffer | null = null;
+
+    try {
+      for await (const part of request.parts()) {
+        if (part.type === 'file') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) chunks.push(chunk);
+          const buf = Buffer.concat(chunks);
+
+          if (part.fieldname === 'pdf_file') {
+            rawPdfBuffer = buf;
+          } else if (part.fieldname === 'cover_file') {
+            if (buf.length > MAX_COVER_SIZE) {
+              return reply.status(400).send({
+                error: 'COVER_TOO_LARGE',
+                message: `封面檔案超過上限 ${MAX_COVER_SIZE / 1024 / 1024}MB`,
+              });
+            }
+            if (!isSupportedImage(buf)) {
+              return reply.status(400).send({
+                error: 'INVALID_COVER',
+                message: '封面必須是 JPG、PNG 或 WebP 格式',
+              });
+            }
+            coverBuffer = buf;
+          }
+        } else if (part.type === 'field') {
+          const v = (part as { value: unknown }).value;
+          if (typeof v === 'string') fields[part.fieldname] = v;
+        }
+      }
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(400).send({
+        error: 'UPLOAD_ERROR',
+        message: err instanceof Error ? err.message : '檔案讀取失敗',
+      });
+    }
+
+    if (!rawPdfBuffer) {
+      return reply.status(400).send({ error: 'MISSING_FILE', message: 'pdf_file is required' });
+    }
+
+    let result;
+    try {
+      result = startBookPdfReplace({ book, rawPdfBuffer, coverBuffer, fields, log: request.log });
+    } catch (err) {
+      return reply.status(400).send({
+        error: 'INVALID_PDF',
+        message: err instanceof Error ? err.message : '上傳的檔案不是有效的 PDF',
+      });
+    }
+
+    return reply.status(202).send({
+      success: true,
+      message: 'PDF 已接收，後台處理中',
+      task_id: result.taskId,
+      book_id: result.bookId,
+    });
   });
 
   // GET /categories - 週報文章分類
