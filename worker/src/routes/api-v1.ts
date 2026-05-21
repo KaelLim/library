@@ -499,9 +499,12 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /books - 上傳新電子書（multipart/form-data，202 + task_id 廣播進度）
+  // validatorCompiler no-op：保留 schema 供 OpenAPI 文件使用，但跳過 AJV 驗證
+  // （multipart body 由 request.parts() 讀取，不會填入 request.body，AJV 會誤判 "body must be object"）
   fastify.post('/books', {
     preHandler: [requireAuth],
     config: { rateLimit: { max: 20, timeWindow: '1 hour' } },
+    validatorCompiler: () => () => true,
     schema: {
       tags: ['電子書上傳'],
       summary: '上傳新電子書',
@@ -629,9 +632,11 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /books/:id/pdf - 替換電子書 PDF
+  // validatorCompiler no-op：理由同上（multipart 無法被 AJV 驗證），id 參數在 handler 中以 parseInt + getBookById 處理
   fastify.post<{ Params: { id: string } }>('/books/:id/pdf', {
     preHandler: [requireAuth],
     config: { rateLimit: { max: 20, timeWindow: '1 hour' } },
+    validatorCompiler: () => () => true,
     schema: {
       tags: ['電子書上傳'],
       summary: '替換電子書 PDF',
