@@ -276,11 +276,11 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const titleDate = `${yyyy}年${mm}月${dd}日`;
     const yyyymmdd = `${yyyy}${String(mm).padStart(2, '0')}${String(dd).padStart(2, '0')}`;
 
+    const campaign = `weekly-${weekly.week_number}-${yyyymmdd}`;
     const homepageParams = new URLSearchParams({
-      utm_source: 'AQ_EDM',
+      utm_source: 'aq_edm',
       utm_medium: 'email',
-      utm_weekly: String(weekly.week_number),
-      utm_date: yyyymmdd,
+      utm_campaign: campaign,
     });
 
     const result: Record<string, string> = {
@@ -302,12 +302,10 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
       const categoryName = a.category?.name || '';
       const articleParams = new URLSearchParams({
-        utm_source: 'AQ_EDM',
+        utm_source: 'aq_edm',
         utm_medium: 'email',
-        utm_weekly: String(weekly.week_number),
-        utm_date: yyyymmdd,
-        utm_article: String(a.id),
-        utm_category: categoryName,
+        utm_campaign: campaign,
+        utm_content: `${a.id}-${categoryName}`,
       });
 
       result[`section${n}_pic`] = pic ? (toPublicUrl(pic, 'weekly') || pic) : '';
