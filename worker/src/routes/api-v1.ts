@@ -214,6 +214,7 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
         200: {
           type: 'object',
           properties: {
+            title_num: { type: 'integer', description: '週報期數（week_number）' },
             title_date: { type: 'string', description: '顯示日期，如 "2026年5月19日"（不補 0）' },
             title_link: { type: 'string', description: '週報首頁連結（含 UTM）' },
           },
@@ -283,7 +284,8 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       utm_campaign: campaign,
     });
 
-    const result: Record<string, string> = {
+    const result: Record<string, string | number> = {
+      title_num: weekly.week_number,
       title_date: titleDate,
       title_link: `${WEEKLY_FRONTEND_URL}/?${homepageParams.toString()}`,
     };
