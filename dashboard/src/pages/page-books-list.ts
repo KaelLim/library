@@ -16,6 +16,8 @@ import '../components/ui/tc-dialog.js';
 import '../components/books/tc-book-upload-dialog.js';
 import '../components/books/tc-book-edit-dialog.js';
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'http://localhost:8000';
+
 interface CategoryTab {
   id: string;
   label: string;
@@ -441,6 +443,13 @@ export class PageBooksList extends LitElement {
                   >
                     閱讀
                   </tc-button>
+                  <tc-button
+                    variant="secondary"
+                    size="sm"
+                    @click=${() => this.handleViewPdf(book)}
+                  >
+                    PDF
+                  </tc-button>
                 `
               : ''}
             <tc-button
@@ -525,6 +534,15 @@ export class PageBooksList extends LitElement {
     if (book.pdf_path) {
       const uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
       window.open(`/books/r/${uuid}`, '_blank');
+    }
+  }
+
+  private handleViewPdf(book: BookWithCategory): void {
+    if (book.pdf_path) {
+      window.open(
+        `${SUPABASE_URL}/storage/v1/object/public/${book.pdf_path}`,
+        '_blank',
+      );
     }
   }
 
