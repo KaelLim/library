@@ -9,7 +9,9 @@
 
 const DB_NAME = 'pdfviewer-cache';
 const STORE = 'pages';
-const DB_VERSION = 1;
+// v2 (2026-06): wipe entries cached before the PDF.js v5 JPX wasm fix —
+// some pages were stored as blank/half-rendered because JpxImage failed.
+const DB_VERSION = 2;
 // Evict entries older than this to keep storage bounded.
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -27,10 +29,13 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const store = db.createObjectStore(STORE, { keyPath: 'key' });
-        store.createIndex('timestamp', 'timestamp');
+      // Any version bump wipes the store: keys don't carry a viewer-version
+      // suffix, so we can't tell blank-from-bug entries from valid ones.
+      if (db.objectStoreNames.contains(STORE)) {
+        db.deleteObjectStore(STORE);
       }
+      const store = db.createObjectStore(STORE, { keyPath: 'key' });
+      store.createIndex('timestamp', 'timestamp');
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
