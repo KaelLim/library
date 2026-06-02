@@ -531,16 +531,15 @@ export class PageBooksList extends LitElement {
   }
 
   private handleView(book: BookWithCategory): void {
-    if (book.pdf_path) {
-      const uuid = book.pdf_path.replace(/^books\//, '').replace(/\.pdf$/, '');
-      window.open(`/books/r/${uuid}`, '_blank');
+    if (book.book_id) {
+      window.open(`/books/r/${book.book_id}`, '_blank');
     }
   }
 
   private handleViewPdf(book: BookWithCategory): void {
     if (book.pdf_path) {
       window.open(
-        `${SUPABASE_URL}/storage/v1/object/public/${book.pdf_path}`,
+        `${SUPABASE_URL}/storage/v1/object/public/books/${book.pdf_path}`,
         '_blank',
       );
     }
