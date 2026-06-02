@@ -9,6 +9,8 @@ export interface PdfJsSelection {
   libUrl: string;
   workerUrl: string;
   cMapUrl: string;
+  /** v5+ ships JPEG 2000 / JBIG2 decoders as WASM; needed for image-heavy PDFs. */
+  wasmUrl?: string;
   /** true = ES module (use `import()`); false = UMD (use `<script>` + global). */
   esm: boolean;
 }
@@ -21,6 +23,7 @@ export interface PdfJsApi {
 export interface PdfJsHandle {
   lib: PdfJsApi;
   cMapUrl: string;
+  wasmUrl?: string;
   version: string;
   line: PdfJsLine;
 }
@@ -55,6 +58,7 @@ function esm(version: string, line: PdfJsLine): PdfJsSelection {
     libUrl: `${CDN}@${version}/build/pdf.min.mjs`,
     workerUrl: `${CDN}@${version}/build/pdf.worker.min.mjs`,
     cMapUrl: `${CDN}@${version}/cmaps/`,
+    wasmUrl: line === 'v5' ? `${CDN}@${version}/wasm/` : undefined,
     esm: true,
   };
 }
@@ -96,5 +100,5 @@ export async function loadPdfJs(): Promise<PdfJsHandle> {
   }
 
   lib.GlobalWorkerOptions.workerSrc = sel.workerUrl;
-  return { lib, cMapUrl: sel.cMapUrl, version: sel.version, line: sel.line };
+  return { lib, cMapUrl: sel.cMapUrl, wasmUrl: sel.wasmUrl, version: sel.version, line: sel.line };
 }

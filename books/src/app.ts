@@ -6,7 +6,7 @@ import { extractLinks, resolveDestPage, type LinkInfo } from './links.js';
 
 // Feature-detect browser capability and load the matching PDF.js line
 // (v5 → v4 → v3 → v3-legacy). Also wires up GlobalWorkerOptions.workerSrc.
-const { lib: pdfjsLib, cMapUrl: pdfCmapUrl, version: pdfjsVersion, line: pdfjsLine } = await loadPdfJs();
+const { lib: pdfjsLib, cMapUrl: pdfCmapUrl, wasmUrl: pdfWasmUrl, version: pdfjsVersion, line: pdfjsLine } = await loadPdfJs();
 console.log(`[pdf.js] loaded ${pdfjsLine} ${pdfjsVersion}`);
 
 // Scale 3 = oversample for 2x DPR with zoom headroom up to 1.5x.
@@ -198,6 +198,7 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
     const commonParams = {
       cMapUrl: pdfCmapUrl,
       cMapPacked: true,
+      wasmUrl: pdfWasmUrl,
       rangeChunkSize: 65536,
       disableStream: false,
       disableAutoFetch: false,
