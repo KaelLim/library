@@ -66,6 +66,7 @@ export interface AuditLog {
 export interface BooksCategory {
   id: number;
   name: string;
+  name_en: string | null;             // 英文名稱（additive；無對照時為 null）
   slug: string | null;
   folder_id: string | null;
   sort_order: number;

@@ -4,6 +4,7 @@ import { authStore } from '../stores/auth-store.js';
 export interface BookCategory {
   id: number;
   name: string;
+  name_en: string | null;
   slug: string;
   folder_id: number | null;
 }
@@ -38,37 +39,16 @@ export interface BookWithCategory extends Book {
 }
 
 /**
- * 書庫分類中英文對照（slug → English name）。
- *
- * 不寫入 DB 以避免改動 /books/categories 的 JSON 格式，僅供 dashboard UI 顯示。
- * 新增分類時請同步更新此 map；slug 未列於此者，UI 只顯示中文。
+ * 「中文 ／ English」格式；name_en 為 null 時只回中文；空 category 回 fallback。
+ * 來源：DB books_category.name_en（單一真相），dashboard 不再維護獨立對照表。
  */
-export const BOOKS_CATEGORY_NAME_EN: Record<string, string> = {
-  book: 'Other Publications',
-  weekly: 'Tzu Chi Weekly',
-  daolu: 'Tzu Chi Companion',
-  monthly: 'Tzu Chi Monthly',
-  footprint: 'Dharma Wisdom',
-  yearbook: 'Tzu Chi Almanac',
-  'sixty-anniversary': 'Tzu Chi 60th Anniversary Book Collection',
-  about: 'About Tzu Chi',
-  sustainability: 'Relief, Care, Sustainability',
-  journals: 'Journals',
-};
-
-export function getCategoryNameEn(slug: string | null | undefined): string | null {
-  if (!slug) return null;
-  return BOOKS_CATEGORY_NAME_EN[slug] ?? null;
-}
-
-/** 「中文 ／ English」格式；無對照時只回中文；空 category 回 fallback。 */
 export function getCategoryDisplayName(
-  category: { name?: string | null; slug?: string | null } | null | undefined,
+  category: { name?: string | null; name_en?: string | null } | null | undefined,
   fallback = '未分類'
 ): string {
   const name = category?.name ?? '';
   if (!name) return fallback;
-  const en = getCategoryNameEn(category?.slug);
+  const en = category?.name_en;
   return en ? `${name} ／ ${en}` : name;
 }
 

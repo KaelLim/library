@@ -6,6 +6,7 @@
 CREATE TABLE IF NOT EXISTS public.books_category (
   id BIGSERIAL NOT NULL,
   name TEXT NOT NULL,
+  name_en TEXT,                       -- 英文名稱（additive，可空）
   slug TEXT,
   folder_id TEXT,                     -- FlipHTML5 資料夾 ID
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -76,20 +77,20 @@ ALTER TABLE public.audit_logs ADD CONSTRAINT audit_logs_action_check CHECK (
   )
 );
 
--- 預設電子書分類（既有 6 個 + 2026-06 新增 4 個）
--- 中英文對照於 dashboard/src/services/books.ts BOOKS_CATEGORY_NAME_EN 維護
-INSERT INTO public.books_category (id, name, slug, folder_id, sort_order) VALUES
-  (1,  '書籍',             'book',              '7405576', 1),
-  (2,  '慈濟週報',         'weekly',            '7742461', 2),
-  (3,  '慈濟道侶',         'daolu',             '7405577', 3),
-  (4,  '慈濟月刊',         'monthly',           '7405573', 4),
-  (5,  '宗門足跡',         'footprint',         '7405572', 5),
-  (6,  '慈濟年鑑',         'yearbook',          '7405570', 6),
-  (7,  '慈濟六十紀念套書', 'sixty-anniversary', NULL,      7),
-  (8,  '認識慈濟',         'about',             NULL,      8),
-  (9,  '人道關懷與永續',   'sustainability',    NULL,      9),
-  (10, '刊物出版',         'journals',          NULL,      10)
+-- 預設電子書分類（既有 6 個 + 2026-06 新增 4 個 + name_en）
+INSERT INTO public.books_category (id, name, name_en, slug, folder_id, sort_order) VALUES
+  (1,  '書籍',             'Other Publications',                          'book',              '7405576', 1),
+  (2,  '慈濟週報',         'Tzu Chi Weekly',                              'weekly',            '7742461', 2),
+  (3,  '慈濟道侶',         'Tzu Chi Companion',                           'daolu',             '7405577', 3),
+  (4,  '慈濟月刊',         'Tzu Chi Monthly',                             'monthly',           '7405573', 4),
+  (5,  '宗門足跡',         'Dharma Wisdom',                               'footprint',         '7405572', 5),
+  (6,  '慈濟年鑑',         'Tzu Chi Almanac',                             'yearbook',          '7405570', 6),
+  (7,  '慈濟六十紀念套書', 'Tzu Chi 60th Anniversary Book Collection',    'sixty-anniversary', NULL,      7),
+  (8,  '認識慈濟',         'About Tzu Chi',                               'about',             NULL,      8),
+  (9,  '人道關懷與永續',   'Relief, Care, Sustainability',                'sustainability',    NULL,      9),
+  (10, '刊物出版',         'Journals',                                    'journals',          NULL,      10)
 ON CONFLICT (name) DO UPDATE SET
+  name_en = EXCLUDED.name_en,
   folder_id = EXCLUDED.folder_id,
   slug = EXCLUDED.slug;
 
