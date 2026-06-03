@@ -5,6 +5,7 @@ import {
   getBookList,
   getBookCategories,
   getBookCategoryCounts,
+  getCategoryDisplayName,
   deleteBook,
 } from '../services/books.js';
 import { toastStore } from '../stores/toast-store.js';
@@ -299,10 +300,10 @@ export class PageBooksList extends LitElement {
 
   private get categoryTabs(): CategoryTab[] {
     return [
-      { id: 'all', label: '全部', count: this.counts.all ?? 0 },
+      { id: 'all', label: '全部 ／ All', count: this.counts.all ?? 0 },
       ...this.categories.map((cat) => ({
         id: String(cat.id),
-        label: cat.name,
+        label: getCategoryDisplayName(cat),
         count: this.counts[cat.id] ?? 0,
       })),
     ];
@@ -430,7 +431,7 @@ export class PageBooksList extends LitElement {
             : html`<span class="placeholder">📖</span>`}
         </div>
         <div class="book-info">
-          <div class="book-category">${book.category?.name || '未分類'}</div>
+          <div class="book-category">${getCategoryDisplayName(book.category)}</div>
           <div class="book-title">${book.title}</div>
           ${book.author ? html`<div class="book-author">${book.author}</div>` : ''}
           <div class="book-actions">

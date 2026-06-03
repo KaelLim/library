@@ -38,6 +38,41 @@ export interface BookWithCategory extends Book {
 }
 
 /**
+ * 書庫分類中英文對照（slug → English name）。
+ *
+ * 不寫入 DB 以避免改動 /books/categories 的 JSON 格式，僅供 dashboard UI 顯示。
+ * 新增分類時請同步更新此 map；slug 未列於此者，UI 只顯示中文。
+ */
+export const BOOKS_CATEGORY_NAME_EN: Record<string, string> = {
+  book: 'Other Publications',
+  weekly: 'Tzu Chi Weekly',
+  daolu: 'Tzu Chi Companion',
+  monthly: 'Tzu Chi Monthly',
+  footprint: 'Dharma Wisdom',
+  yearbook: 'Tzu Chi Almanac',
+  'sixty-anniversary': 'Tzu Chi 60th Anniversary Book Collection',
+  about: 'About Tzu Chi',
+  sustainability: 'Relief, Care, Sustainability',
+  journals: 'Journals',
+};
+
+export function getCategoryNameEn(slug: string | null | undefined): string | null {
+  if (!slug) return null;
+  return BOOKS_CATEGORY_NAME_EN[slug] ?? null;
+}
+
+/** 「中文 ／ English」格式；無對照時只回中文；空 category 回 fallback。 */
+export function getCategoryDisplayName(
+  category: { name?: string | null; slug?: string | null } | null | undefined,
+  fallback = '未分類'
+): string {
+  const name = category?.name ?? '';
+  if (!name) return fallback;
+  const en = getCategoryNameEn(category?.slug);
+  return en ? `${name} ／ ${en}` : name;
+}
+
+/**
  * 取得書籍分類列表
  */
 export async function getBookCategories(): Promise<BookCategory[]> {

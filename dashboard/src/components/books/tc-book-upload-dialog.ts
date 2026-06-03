@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { BookCategory } from '../../services/books.js';
-import { getBookCategories } from '../../services/books.js';
+import { getBookCategories, getCategoryDisplayName } from '../../services/books.js';
 import { subscribeToBookUploadProgress, unsubscribeFromBookUploadProgress } from '../../services/realtime.js';
 import { toastStore } from '../../stores/toast-store.js';
 import { authStore } from '../../stores/auth-store.js';
@@ -478,7 +478,7 @@ export class TcBookUploadDialog extends LitElement {
               @change=${(e: Event) => this.handleCategoryChange((e.target as HTMLSelectElement).value)}
             >
               ${this.categories.map(
-                (cat) => html`<option value=${cat.id}>${cat.name}</option>`
+                (cat) => html`<option value=${cat.id}>${getCategoryDisplayName(cat)}</option>`
               )}
             </select>
           </div>

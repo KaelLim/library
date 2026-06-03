@@ -1,7 +1,13 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import type { BookWithCategory, BookCategory } from '../../services/books.js';
-import { getBookCategories, updateBook, uploadBookCover, replaceBookPdf } from '../../services/books.js';
+import {
+  getBookCategories,
+  getCategoryDisplayName,
+  updateBook,
+  uploadBookCover,
+  replaceBookPdf,
+} from '../../services/books.js';
 import { subscribeToBookUploadProgress, unsubscribeFromBookUploadProgress } from '../../services/realtime.js';
 import { authStore } from '../../stores/auth-store.js';
 import { toastStore } from '../../stores/toast-store.js';
@@ -523,7 +529,7 @@ export class TcBookEditDialog extends LitElement {
               >
                 <option value="">未分類</option>
                 ${this.categories.map(
-                  (cat) => html`<option value=${cat.id}>${cat.name}</option>`
+                  (cat) => html`<option value=${cat.id}>${getCategoryDisplayName(cat)}</option>`
                 )}
               </select>
             </div>

@@ -76,14 +76,19 @@ ALTER TABLE public.audit_logs ADD CONSTRAINT audit_logs_action_check CHECK (
   )
 );
 
--- 預設電子書分類（來自既有資料）
+-- 預設電子書分類（既有 6 個 + 2026-06 新增 4 個）
+-- 中英文對照於 dashboard/src/services/books.ts BOOKS_CATEGORY_NAME_EN 維護
 INSERT INTO public.books_category (id, name, slug, folder_id, sort_order) VALUES
-  (1, '書籍', 'book', '7405576', 1),
-  (2, '慈濟週報', 'weekly', '7742461', 2),
-  (3, '慈濟道侶', 'daolu', '7405577', 3),
-  (4, '慈濟月刊', 'monthly', '7405573', 4),
-  (5, '宗門足跡', 'footprint', '7405572', 5),
-  (6, '慈濟年鑑', 'yearbook', '7405570', 6)
+  (1,  '書籍',             'book',              '7405576', 1),
+  (2,  '慈濟週報',         'weekly',            '7742461', 2),
+  (3,  '慈濟道侶',         'daolu',             '7405577', 3),
+  (4,  '慈濟月刊',         'monthly',           '7405573', 4),
+  (5,  '宗門足跡',         'footprint',         '7405572', 5),
+  (6,  '慈濟年鑑',         'yearbook',          '7405570', 6),
+  (7,  '慈濟六十紀念套書', 'sixty-anniversary', NULL,      7),
+  (8,  '認識慈濟',         'about',             NULL,      8),
+  (9,  '人道關懷與永續',   'sustainability',    NULL,      9),
+  (10, '刊物出版',         'journals',          NULL,      10)
 ON CONFLICT (name) DO UPDATE SET
   folder_id = EXCLUDED.folder_id,
   slug = EXCLUDED.slug;
