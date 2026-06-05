@@ -77,7 +77,8 @@ ALTER TABLE public.audit_logs ADD CONSTRAINT audit_logs_action_check CHECK (
   )
 );
 
--- 預設電子書分類（既有 6 個 + 2026-06 新增 4 個 + name_en）
+-- 預設電子書分類（既有 6 個 + 2026-06 新增 4 個 + name_en + public 分類）
+-- slug='public' 的分類會額外曝光在 /api/v1/public/books/* 公開 API
 INSERT INTO public.books_category (id, name, name_en, slug, folder_id, sort_order) VALUES
   (1,  '書籍',             'Other Publications',                          'book',              '7405576', 1),
   (2,  '慈濟週報',         'Tzu Chi Weekly',                              'weekly',            '7742461', 2),
@@ -88,7 +89,8 @@ INSERT INTO public.books_category (id, name, name_en, slug, folder_id, sort_orde
   (7,  '慈濟六十紀念套書', 'Tzu Chi 60th Anniversary Book Collection',    'sixty-anniversary', NULL,      7),
   (8,  '認識慈濟',         'About Tzu Chi',                               'about',             NULL,      8),
   (9,  '人道關懷與永續',   'Relief, Care, Sustainability',                'sustainability',    NULL,      9),
-  (10, '刊物出版',         'Journals',                                    'journals',          NULL,      10)
+  (10, '刊物出版',         'Journals',                                    'journals',          NULL,      10),
+  (11, '公開出版',         'Public',                                      'public',            NULL,      11)
 ON CONFLICT (name) DO UPDATE SET
   name_en = EXCLUDED.name_en,
   folder_id = EXCLUDED.folder_id,

@@ -624,6 +624,195 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
+  // ============================================================
+  // /public/books/* — 對外公開電子書 API
+  // ------------------------------------------------------------
+  // 同一張 books 表、同一個 books bucket，但這組 endpoint：
+  //   * 只回 category.slug='public' 的書（其它分類不曝光在這裡）
+  //   * 開放 CORS = *、Cache-Control: public（外站可直接 fetch / iframe）
+  //   * shape 精簡：拿掉內部欄位 (hits, created_at, updated_at)，
+  //     URL 一律組好（pdf_url / thumbnail_url / reader_url / embed_url）
+  // 既有 /api/v1/books 行為不變、繼續看得到 public 分類的書（管理介面用）。
+  // ============================================================
+
+  /** 對外公開回應的共用 header（每個 public 路由 handler 開頭呼叫一次） */
+  function setPublicResponseHeaders(reply: any, maxAgeSeconds = 300) {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.removeHeader('Access-Control-Allow-Credentials');
+    reply.header('Cache-Control', `public, max-age=${maxAgeSeconds}, s-maxage=${maxAgeSeconds}`);
+  }
+
+  /** 內部 books row → 對外精簡 shape */
+  function toPublicBookShape(b: any) {
+    return {
+      id: b.id,
+      title: b.title,
+      description: b.introtext ?? null,
+      catalogue: b.catalogue ?? null,
+      author: b.author ?? null,
+      author_introtext: b.author_introtext ?? null,
+      publisher: b.publisher ?? null,
+      book_date: b.book_date ?? null,
+      publish_date: b.publish_date ?? null,
+      isbn: b.isbn ?? null,
+      language: b.language ?? null,
+      turn_page: b.turn_page ?? null,
+      copyright: b.copyright ?? null,
+      pdf_url: toPublicUrl(b.pdf_path, 'books'),
+      thumbnail_url: toPublicUrl(b.thumbnail_url, 'books'),
+      reader_url: b.book_id ? `${PUBLIC_BASE}/books/r/${b.book_id}` : null,
+      embed_url: b.book_id ? `${PUBLIC_BASE}/books/r/${b.book_id}?embed=1` : null,
+      category: b.category
+        ? {
+            id: b.category.id,
+            slug: b.category.slug,
+            name: b.category.name,
+            name_en: b.category.name_en,
+          }
+        : null,
+    };
+  }
+
+  /** 解析 slug='public' 的 category id，cache 在 closure 內避免每次 query */
+  let publicCategoryIdCache: number | null = null;
+  async function getPublicCategoryId(): Promise<number | null> {
+    if (publicCategoryIdCache !== null) return publicCategoryIdCache;
+    const { data, error } = await getSupabase()
+      .from('books_category')
+      .select('id')
+      .eq('slug', 'public')
+      .maybeSingle();
+    if (error || !data) return null;
+    publicCategoryIdCache = data.id;
+    return data.id;
+  }
+
+  // GET /public/books/categories - 公開分類資訊（含 book_count）
+  fastify.get('/public/books/categories', {
+    schema: {
+      tags: ['電子書'],
+      summary: '公開電子書分類',
+      description: '回傳 slug=\'public\' 的分類資訊（含書籍數）。供外站顯示分類標題用。',
+    },
+  }, async (_request, reply) => {
+    setPublicResponseHeaders(reply, 600);
+
+    const { data, error } = await getSupabase()
+      .from('books_category')
+      .select('*, books(count)')
+      .eq('slug', 'public');
+
+    if (error) throw error;
+    return (data || []).map((c: any) => ({
+      id: c.id,
+      slug: c.slug,
+      name: c.name,
+      name_en: c.name_en,
+      sort_order: c.sort_order,
+      book_count: c.books?.[0]?.count || 0,
+    }));
+  });
+
+  // GET /public/books - 公開電子書列表 / 搜尋
+  fastify.get<{
+    Querystring: { q?: string; limit?: string; offset?: string };
+  }>('/public/books', {
+    schema: {
+      tags: ['電子書'],
+      summary: '公開電子書列表',
+      description: [
+        '回傳分類為「公開出版」（slug=\'public\'）的電子書，shape 為精簡對外格式（含 embed_url）。',
+        '`Access-Control-Allow-Origin: *`、`Cache-Control: public, max-age=300`，可從任意網域 fetch 或 iframe 嵌入。',
+        '提供 `q` 時對 title / author / publisher / isbn / introtext 做模糊搜尋。',
+      ].join('\n\n'),
+      querystring: {
+        type: 'object',
+        properties: {
+          ...paginationQueryProps,
+          q: { type: 'string', description: '關鍵字搜尋' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    setPublicResponseHeaders(reply);
+
+    const { q, limit: limitStr, offset: offsetStr } = request.query;
+    const { limit, offset } = parsePagination(limitStr, offsetStr);
+
+    const publicCatId = await getPublicCategoryId();
+    if (publicCatId === null) {
+      // 沒裝 public 分類也不要 500，直接回空列表（migration 還沒跑時保持 graceful）
+      return paginate([], 0, limit, offset);
+    }
+
+    let query = getSupabase()
+      .from('books')
+      .select('*, category:category_id(*)', { count: 'exact' })
+      .eq('category_id', publicCatId)
+      .order('publish_date', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (q) {
+      const keyword = q
+        .trim()
+        .replace(/[^\p{L}\p{N}\s\-_.@]/gu, '')
+        .slice(0, 100);
+      if (keyword) {
+        const pattern = `%${keyword}%`;
+        query = query.or(
+          `title.ilike.${pattern},author.ilike.${pattern},publisher.ilike.${pattern},isbn.ilike.${pattern},introtext.ilike.${pattern}`
+        );
+      }
+    }
+
+    const { data, count, error } = await query;
+    if (error) throw error;
+
+    const books = (data || []).map(toPublicBookShape);
+    return paginate(books, count || 0, limit, offset);
+  });
+
+  // GET /public/books/:id - 單本公開電子書
+  fastify.get<{
+    Params: { id: string };
+  }>('/public/books/:id', {
+    schema: {
+      tags: ['電子書'],
+      summary: '單本公開電子書',
+      description: '取得單本公開電子書詳情；若該書不屬於 public 分類回 404。',
+      params: {
+        type: 'object',
+        properties: { id: { type: 'string', description: '電子書 ID' } },
+      },
+    },
+  }, async (request, reply) => {
+    setPublicResponseHeaders(reply);
+
+    const bookId = parseInt(request.params.id, 10);
+    if (!Number.isFinite(bookId)) {
+      return reply.status(400).send({ error: 'BAD_ID', message: 'id must be a number' });
+    }
+
+    const publicCatId = await getPublicCategoryId();
+    if (publicCatId === null) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: 'public category not configured' });
+    }
+
+    const { data, error } = await getSupabase()
+      .from('books')
+      .select('*, category:category_id(*)')
+      .eq('id', bookId)
+      .eq('category_id', publicCatId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: `Public book ${bookId} not found` });
+    }
+
+    return toPublicBookShape(data);
+  });
+
   // POST /books - 上傳新電子書（multipart/form-data，202 + task_id 廣播進度）
   // validatorCompiler no-op：保留 schema 供 OpenAPI 文件使用，但跳過 AJV 驗證
   // （multipart body 由 request.parts() 讀取，不會填入 request.body，AJV 會誤判 "body must be object"）
