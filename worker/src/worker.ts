@@ -235,7 +235,7 @@ export async function runImportWorker(
           metadata: {
             weekly_id: weeklyId,
             platform: 'digital',
-            model: 'sonnet',
+            model: 'opus',
             source_title: article.title,
           },
         });

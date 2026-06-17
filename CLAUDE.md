@@ -110,7 +110,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 
 for await (const msg of query({
   prompt: 'Your prompt',
-  options: { model: 'sonnet' },  // alias 自動跟著現行 Sonnet；不寫死版本
+  options: { model: 'opus' },  // alias 自動跟著現行 Opus；不寫死版本
 })) {
   if (msg.type === 'result' && (msg as any).subtype === 'success') {
     console.log((msg as any).result);
@@ -126,7 +126,7 @@ for await (const msg of query({
 for await (const msg of query({
   prompt,
   options: {
-    model: 'sonnet',
+    model: 'opus',
     maxTurns: 1,
     includePartialMessages: true,  // 啟用 token-level streaming
   },
