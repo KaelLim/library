@@ -32,7 +32,7 @@ ${markdown}`;
   // 使用 session streaming，即時廣播進度
   const resultText = await runSessionWithStreaming(prompt, {
     weeklyId,
-    model: 'claude-sonnet-4-20250514',
+    model: 'sonnet',
   });
 
   if (!resultText) {

@@ -235,7 +235,7 @@ export async function runImportWorker(
           metadata: {
             weekly_id: weeklyId,
             platform: 'digital',
-            model: 'claude-sonnet-4-20250514',
+            model: 'sonnet',
             source_title: article.title,
           },
         });

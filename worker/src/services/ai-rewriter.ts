@@ -78,7 +78,7 @@ ${originalContent}`;
   // 使用 session streaming，即時廣播進度
   const resultText = await runSessionWithStreaming(prompt, {
     weeklyId,
-    model: 'claude-sonnet-4-20250514',
+    model: 'sonnet',
   });
 
   if (!resultText) {
@@ -134,7 +134,7 @@ ${content.substring(0, 2000)}
 
   const resultText = await runSessionWithStreaming(prompt, {
     weeklyId: 0,
-    model: 'claude-sonnet-4-20250514',
+    model: 'sonnet',
   });
 
   if (!resultText) {

@@ -145,7 +145,7 @@ Rules:
 
     const result = await runSessionWithStreaming(prompt, {
       weeklyId,
-      model: 'claude-sonnet-4-20250514',
+      model: 'sonnet',
       maxTurns: estimatedTurns,
       allowedTools: ['Read', 'Glob'],
     });

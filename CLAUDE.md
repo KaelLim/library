@@ -52,6 +52,9 @@ cd supabase-docker && docker compose logs -f   # View logs
 | `ai-parser.ts` | Claude: markdown → JSON parsing |
 | `ai-rewriter.ts` | Claude: 原稿 → 數位版 + description 生成 |
 | `session-streamer.ts` | Claude 即時串流，廣播到 Supabase Realtime |
+| `tts.ts` | TTS 語音生成 (Qwen3-TTS Clone API, SSE 串流) |
+| `image-matcher.ts` | Claude Vision 比對低/高解析度圖片並替換 |
+| `image-compressor.ts` | 圖片壓縮 (sharp) |
 | `fliphtml5.ts` | FlipHTML5 電子書 API (upload, create, update) |
 | `pdf-compressor.ts` | PDF 壓縮 (Ghostscript) |
 | `google-docs.ts` | Google Docs export |
@@ -73,15 +76,19 @@ See `database.md` for full schema.
 ## Environment Variables
 
 ```bash
-# worker/.env
+# worker/.env (本地開發用；Docker 環境由 docker-compose.yml 傳入)
 SUPABASE_URL=http://localhost:8000
 SUPABASE_SERVICE_KEY=your-service-role-key
 FLIPHTML5_ACCESS_KEY_ID=your-key      # 電子書功能
 FLIPHTML5_ACCESS_KEY_SECRET=your-secret
+TTS_API_URL=https://tcm1.tzuchi-org.tw  # TTS/ASR API
 
 # dashboard/.env
 VITE_SUPABASE_URL=http://localhost:8000
 VITE_SUPABASE_ANON_KEY=your-anon-key
+
+# supabase-docker/.env (Docker 環境)
+SUPABASE_PUBLIC_URL=http://localhost:8000  # 正式: https://librarypj.tzuchi-org.tw
 ```
 
 ## Key Patterns
@@ -103,7 +110,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 
 for await (const msg of query({
   prompt: 'Your prompt',
-  options: { model: 'claude-sonnet-4-20250514' },
+  options: { model: 'sonnet' },  // alias 自動跟著現行 Sonnet；不寫死版本
 })) {
   if (msg.type === 'result' && (msg as any).subtype === 'success') {
     console.log((msg as any).result);
@@ -119,7 +126,7 @@ for await (const msg of query({
 for await (const msg of query({
   prompt,
   options: {
-    model: 'claude-sonnet-4-20250514',
+    model: 'sonnet',
     maxTurns: 1,
     includePartialMessages: true,  // 啟用 token-level streaming
   },
@@ -153,12 +160,14 @@ channel.send({ type: 'broadcast', event: 'progress', payload: data });
 
 1. `exporting_docs` - Google Docs → markdown
 2. `converting_images` - base64 → bucket URL
+2.5. `replacing_images` - Claude Vision 比對替換高解析度圖片（需提供 Drive 資料夾）
 3. `uploading_original` - 原始 markdown 上傳
-4. `ai_parsing` - Claude 解析 → JSON
+4. `ai_parsing` - Claude 解析 → JSON（透過 session-streamer 即時串流）
 5. `uploading_clean` - 整理後 markdown 上傳
 6. `importing_docs` - 匯入原稿 (platform='docs')
-7. `ai_rewriting` - Claude 改寫 + 生成 description
+7. `ai_rewriting` - Claude 改寫 + 生成 description（透過 session-streamer 即時串流）
 8. `importing_digital` - 匯入數位版 (platform='digital')
+9. `generating_audio` - TTS 語音生成 + 上傳 MP3 到 Storage
 
 ## FlipHTML5 Integration
 
@@ -176,6 +185,14 @@ await updateFlipBookConfig(bookId, {
   RightToLeft: turnPageToRightToLeft('left'),  // 'Yes'
 });
 ```
+
+## API URL 處理
+
+- **`SUPABASE_URL`** (`http://kong:8000`) — Docker 內部用，Worker 存取 Supabase 服務
+- **`SUPABASE_PUBLIC_URL`** — 對外公開 URL（本地 `http://localhost:8000`，正式 `https://librarypj.tzuchi-org.tw`）
+- API 回傳的 URL（mp3_url、pdf_path、thumbnail_url、reader_url）必須用 `SUPABASE_PUBLIC_URL`，不可用內部 `SUPABASE_URL`
+- 資料庫存相對路徑，API 層用 `toPublicUrl()` 組裝完整 URL
+- **`/worker/*` 路由需要 `apikey` header**（Kong key-auth），使用 `fetchWorker()` 會自動帶；直接 `fetch()` 需手動加 `apikey` + `Authorization`
 
 ## Production Deployment Notes
 
@@ -201,6 +218,9 @@ docker compose up -d                            # 重啟其他服務
 
 - `/login` - Google OAuth
 - `/` - 週報列表
-- `/weekly/:id` - 週報詳情（編輯文稿）
+- `/weekly/:id` - 週報詳情（編輯文稿、試聽語音）
 - `/weekly/:id/import` - 匯入進度
 - `/books` - 電子書管理
+- `/push` - 推播管理（自訂推播 + 歷史紀錄）
+- `/logs` - 系統日誌
+- `/test-drive` - 測試頁

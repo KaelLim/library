@@ -101,7 +101,7 @@ export async function runSessionWithStreaming(
 ): Promise<string> {
   const {
     weeklyId,
-    model = 'claude-sonnet-4-20250514',
+    model = 'sonnet',
     allowedTools = [],
     maxTurns = 1,
     chunkSize = 100,
