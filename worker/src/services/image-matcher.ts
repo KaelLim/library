@@ -542,3 +542,114 @@ Rules:
     }
   }
 }
+
+export interface PerCategoryMatchOutcome {
+  totalReplaced: number;
+  perCategory: Record<number, CategoryMatchResult>;
+  strategy: 'per-category' | 'skipped-flat' | 'skipped-mapping-failed';
+  folderMapping: Record<string, number>;
+  unmappedFolders: string[];
+  driveStructure:
+    | { mode: 'categorized'; subfoldersCount: number }
+    | { mode: 'flat'; reason: string };
+}
+
+/**
+ * 主入口：分類別逐版比對。失敗時嚴格 fallback（跳過替換，保留低解析度）。
+ */
+export async function matchAndReplacePerCategory(options: {
+  weeklyId: number;
+  parsed: ParsedWeekly;
+  providerToken: string;
+  driveFolderId: string;
+  onProgress?: (msg: string) => void;
+}): Promise<PerCategoryMatchOutcome> {
+  const { weeklyId, parsed, providerToken, driveFolderId, onProgress } = options;
+
+  onProgress?.('偵測 Drive 結構...');
+  const structure = await detectDriveStructure(providerToken, driveFolderId);
+
+  if (structure.mode === 'flat') {
+    onProgress?.(`Drive 為平鋪結構（${structure.reason}），跳過高解析度替換`);
+    return {
+      totalReplaced: 0,
+      perCategory: {},
+      strategy: 'skipped-flat',
+      folderMapping: {},
+      unmappedFolders: [],
+      driveStructure: structure,
+    };
+  }
+
+  onProgress?.(`AI 對應 ${structure.subfolders.length} 個子資料夾到分類...`);
+  const mapping = await mapDriveFoldersToCategories(structure.subfolders, weeklyId);
+
+  if (mapping.mappings.size === 0) {
+    onProgress?.('AI 無法對應任何子資料夾到分類，跳過');
+    return {
+      totalReplaced: 0,
+      perCategory: {},
+      strategy: 'skipped-mapping-failed',
+      folderMapping: {},
+      unmappedFolders: mapping.unmapped,
+      driveStructure: { mode: 'categorized', subfoldersCount: structure.subfolders.length },
+    };
+  }
+
+  const imageToCategory = deriveImageCategoryMap(parsed);
+  const categoryToImages = new Map<number, string[]>();
+  for (const [filename, catId] of imageToCategory) {
+    if (!categoryToImages.has(catId)) categoryToImages.set(catId, []);
+    categoryToImages.get(catId)!.push(filename);
+  }
+
+  const folderByCategory = new Map<number, string>();
+  for (const [folderId, catId] of mapping.mappings) {
+    folderByCategory.set(catId, folderId);
+  }
+
+  const perCategory: Record<number, CategoryMatchResult> = {};
+  let totalReplaced = 0;
+
+  for (const [catId, lowFilenames] of categoryToImages) {
+    const folderId = folderByCategory.get(catId);
+    if (!folderId) {
+      onProgress?.(`分類 ${catId} 無對應 Drive 子資料夾，跳過 ${lowFilenames.length} 張`);
+      perCategory[catId] = { replaced: 0, skipped: lowFilenames.length, driveFolderId: '' };
+      continue;
+    }
+
+    onProgress?.(`分類 ${catId}: 列出 Drive 高解析度圖...`);
+    const highFiles = await listImagesRecursive(providerToken, folderId);
+    if (highFiles.length === 0) {
+      onProgress?.(`分類 ${catId} 的 Drive 資料夾沒有圖片`);
+      perCategory[catId] = { replaced: 0, skipped: lowFilenames.length, driveFolderId: folderId };
+      continue;
+    }
+
+    const result = await runVisionMatchForCategory({
+      weeklyId,
+      categoryId: catId,
+      lowFilenames,
+      highFiles,
+      providerToken,
+      onProgress,
+    });
+    perCategory[catId] = { ...result, driveFolderId: folderId };
+    totalReplaced += result.replaced;
+  }
+
+  const folderMapping: Record<string, number> = {};
+  for (const [folderId, catId] of mapping.mappings) {
+    folderMapping[folderId] = catId;
+  }
+
+  return {
+    totalReplaced,
+    perCategory,
+    strategy: 'per-category',
+    folderMapping,
+    unmappedFolders: mapping.unmapped,
+    driveStructure: { mode: 'categorized', subfoldersCount: structure.subfolders.length },
+  };
+}
