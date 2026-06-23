@@ -1,6 +1,13 @@
 import { join } from 'path';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
-import { downloadFile, listImagesRecursive, type DriveFile } from './google-drive.js';
+import {
+  downloadFile,
+  listImagesRecursive,
+  listFiles,
+  filterSubfolders,
+  type DriveFile,
+  type DriveSubfolder,
+} from './google-drive.js';
 import { runSessionWithStreaming } from './session-streamer.js';
 import { getSupabase, uploadImage } from './supabase.js';
 import { compressImage } from './image-compressor.js';
@@ -233,4 +240,35 @@ export function deriveImageCategoryMap(parsed: ParsedWeekly): Map<string, number
     }
   }
   return map;
+}
+
+export type DriveStructure =
+  | { mode: 'categorized'; subfolders: DriveSubfolder[] }
+  | { mode: 'flat'; reason: string };
+
+/**
+ * 純函式：給 root 資料夾的直接子項清單，決定結構是 categorized 還是 flat。
+ */
+export function decideDriveStructure(files: DriveFile[]): DriveStructure {
+  const subfolders = filterSubfolders(files);
+  const rootImages = files.filter((f) => f.mimeType.startsWith('image/'));
+
+  if (subfolders.length < 2) {
+    return { mode: 'flat', reason: `子資料夾不足（${subfolders.length}）` };
+  }
+  if (rootImages.length > 0) {
+    return { mode: 'flat', reason: `根目錄混有 ${rootImages.length} 張圖檔` };
+  }
+  return { mode: 'categorized', subfolders };
+}
+
+/**
+ * IO 包裝：呼叫 Drive API 取得 root 子項，然後交給 decideDriveStructure 判斷。
+ */
+export async function detectDriveStructure(
+  token: string,
+  rootFolderId: string,
+): Promise<DriveStructure> {
+  const files = await listFiles(token, rootFolderId);
+  return decideDriveStructure(files);
 }
