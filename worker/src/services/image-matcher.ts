@@ -4,6 +4,7 @@ import { downloadFile, listImagesRecursive, type DriveFile } from './google-driv
 import { runSessionWithStreaming } from './session-streamer.js';
 import { getSupabase, uploadImage } from './supabase.js';
 import { compressImage } from './image-compressor.js';
+import type { ParsedWeekly } from '../types/index.js';
 
 interface MatchResult {
   storage_filename: string;
@@ -209,4 +210,27 @@ Rules:
       console.warn(`[ImageMatcher] Failed to cleanup ${tmpDir}:`, err);
     }
   }
+}
+
+const IMAGE_FILENAME_REGEX = /\/images\/(image\d+\.\w+)\)/g;
+
+/**
+ * 從 parse 結果推導每張低解析度圖對應的 category_id。
+ * 同一檔名出現在多版時，第一次出現的 category 勝出（regex 順序）。
+ */
+export function deriveImageCategoryMap(parsed: ParsedWeekly): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const category of parsed.categories) {
+    for (const article of category.articles) {
+      IMAGE_FILENAME_REGEX.lastIndex = 0;
+      let match;
+      while ((match = IMAGE_FILENAME_REGEX.exec(article.content)) !== null) {
+        const filename = match[1];
+        if (!map.has(filename)) {
+          map.set(filename, category.category_id);
+        }
+      }
+    }
+  }
+  return map;
 }
