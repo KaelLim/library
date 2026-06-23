@@ -75,7 +75,7 @@ ${markdown}`;
  * 順序：1) ```json fence 2) greedy { ... } 3) 整段
  * 給呼叫端的 JSON.parse 仍可能失敗（譬如字串內有未跳脫換行），這裡只負責「拿出最像 JSON 的片段」。
  */
-function extractJsonObject(raw: string): string {
+export function extractJsonObject(raw: string): string {
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) return fenceMatch[1].trim();
 

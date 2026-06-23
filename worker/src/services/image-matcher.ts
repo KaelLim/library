@@ -11,6 +11,7 @@ import {
 import { runSessionWithStreaming } from './session-streamer.js';
 import { getSupabase, uploadImage } from './supabase.js';
 import { compressImage } from './image-compressor.js';
+import { extractJsonObject } from './ai-parser.js';
 import type { ParsedWeekly } from '../types/index.js';
 
 interface MatchResult {
@@ -369,4 +370,42 @@ export function validateFolderMappingResponse(
   const unmapped = allFolderIds.filter((id) => !mappings.has(id));
 
   return { mappings, unmapped };
+}
+
+/**
+ * 呼叫 AI 將 Drive 子資料夾名稱對應到 category_id (1-8)。
+ * AI 回傳 JSON 後經 validateFolderMappingResponse 嚴格驗證。
+ */
+export async function mapDriveFoldersToCategories(
+  subfolders: DriveSubfolder[],
+  weeklyId: number,
+): Promise<FolderCategoryMapping> {
+  if (subfolders.length === 0) {
+    return { mappings: new Map(), unmapped: [] };
+  }
+
+  const prompt = buildFolderMappingPrompt(subfolders);
+  const resultText = await runSessionWithStreaming(prompt, {
+    weeklyId,
+    model: 'opus',
+  });
+
+  if (!resultText) {
+    console.error('[image-matcher] folder mapping: empty AI response');
+    return { mappings: new Map(), unmapped: subfolders.map((f) => f.id) };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJsonObject(resultText));
+  } catch (err) {
+    console.error('[image-matcher] folder mapping: JSON parse failed');
+    console.error('AI response preview (first 500 chars):', resultText.substring(0, 500));
+    return { mappings: new Map(), unmapped: subfolders.map((f) => f.id) };
+  }
+
+  return validateFolderMappingResponse(
+    parsed,
+    subfolders.map((f) => f.id),
+  );
 }
