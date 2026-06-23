@@ -1,6 +1,6 @@
 import { loadMarkdownFromFile, extractWeeklyId, downloadMarkdownFromGoogleDocs } from './services/google-docs.js';
 import { processAllImages } from './services/image-processor.js';
-import { matchAndReplaceImages } from './services/image-matcher.js';
+import { matchAndReplacePerCategory } from './services/image-matcher.js';
 import { extractFolderId } from './services/google-drive.js';
 import { getServiceAccessToken, isServiceAccountConfigured } from './services/google-drive-auth.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
@@ -107,8 +107,15 @@ export async function runImportWorker(
     await updateProgress('converting_images', '轉換圖片中...');
     const markdownWithUrls = await processAllImages(rawMarkdown, weeklyId);
 
-    // 2.5 替換高解析度圖片
-    // 優先用 service account；無設定時 fallback 到 user provider_token
+    // 3. 上傳 original.md
+    await updateProgress('uploading_original', '上傳原始檔案...');
+    await uploadMarkdown(weeklyId, 'original.md', markdownWithUrls);
+
+    // 4. AI 解析
+    await updateProgress('ai_parsing', 'AI 解析中...');
+    const parsed: ParsedWeekly = await parseWeeklyMarkdown(markdownWithUrls, weeklyId);
+
+    // 4.5 替換高解析度圖片（per-category）
     if (options.driveFolderUrl) {
       const driveFolderId = extractFolderId(options.driveFolderUrl);
       if (driveFolderId) {
@@ -122,7 +129,7 @@ export async function runImportWorker(
             driveTokenSource = 'service_account';
           }
         } catch (err) {
-          console.warn('[replacing_images] Service account token failed, will try user token:', err);
+          console.warn('[replacing_images] Service account token failed, fallback to user token:', err);
         }
         if (!driveToken && options.providerToken) {
           driveToken = options.providerToken;
@@ -130,40 +137,44 @@ export async function runImportWorker(
         }
 
         if (!driveToken) {
-          await updateProgress(
-            'replacing_images',
-            '無 Drive 認證（service account 未設定且使用者未授權），跳過替換',
-            undefined,
-          );
+          await updateProgress('replacing_images', '無 Drive 認證，跳過替換');
         } else {
           console.log(`[replacing_images] Using ${driveTokenSource} for Drive auth`);
           try {
-            const replaced = await matchAndReplaceImages({
+            const outcome = await matchAndReplacePerCategory({
               weeklyId,
-              markdown: markdownWithUrls,
+              parsed,
               providerToken: driveToken,
               driveFolderId,
-              onProgress: async (msg) => {
-                await updateProgress('replacing_images', msg);
+              onProgress: async (msg) => updateProgress('replacing_images', msg),
+            });
+            console.log(
+              `[replacing_images] strategy=${outcome.strategy}, replaced=${outcome.totalReplaced}`,
+            );
+            await writeAuditLog({
+              user_email: userEmail || null,
+              action: 'image_match',
+              table_name: null,
+              record_id: null,
+              old_data: null,
+              new_data: null,
+              metadata: {
+                weekly_id: weeklyId,
+                strategy: outcome.strategy,
+                drive_structure: outcome.driveStructure,
+                folder_mapping: outcome.folderMapping,
+                unmapped_folders: outcome.unmappedFolders,
+                per_category: outcome.perCategory,
+                total_replaced: outcome.totalReplaced,
               },
             });
-            console.log(`[replacing_images] Replaced ${replaced} images with high-res versions`);
-          } catch (error) {
-            // 圖片替換失敗不應阻止整個匯入流程
-            console.error('[replacing_images] Error:', error);
-            await updateProgress('replacing_images', '圖片替換失敗，繼續匯入...', undefined);
+          } catch (err) {
+            console.error('[replacing_images] Error:', err);
+            await updateProgress('replacing_images', '圖片替換失敗，繼續匯入...');
           }
         }
       }
     }
-
-    // 3. 上傳 original.md
-    await updateProgress('uploading_original', '上傳原始檔案...');
-    await uploadMarkdown(weeklyId, 'original.md', markdownWithUrls);
-
-    // 4. AI 解析
-    await updateProgress('ai_parsing', 'AI 解析中...');
-    const parsed: ParsedWeekly = await parseWeeklyMarkdown(markdownWithUrls, weeklyId);
 
     // 5. 生成並上傳 clean.md
     await updateProgress('uploading_clean', '上傳整理後檔案...');

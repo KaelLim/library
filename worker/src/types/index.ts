@@ -50,7 +50,7 @@ export interface Article {
 export interface AuditLog {
   id?: number;
   user_email: string | null;
-  action: 'login' | 'logout' | 'insert' | 'update' | 'delete' | 'import' | 'ai_transform' | 'create_book' | 'update_book_cover' | 'upload_pdf' | 'batch_generate_descriptions' | 'batch_generate_thumbnails' | 'send_push';
+  action: 'login' | 'logout' | 'insert' | 'update' | 'delete' | 'import' | 'ai_transform' | 'create_book' | 'update_book_cover' | 'upload_pdf' | 'batch_generate_descriptions' | 'batch_generate_thumbnails' | 'send_push' | 'image_match';
   table_name: string | null;
   record_id: number | null;
   old_data: Record<string, unknown> | null;
