@@ -409,3 +409,136 @@ export async function mapDriveFoldersToCategories(
     subfolders.map((f) => f.id),
   );
 }
+
+export interface CategoryMatchResult {
+  replaced: number;
+  skipped: number;
+  driveFolderId: string;
+}
+
+interface VisionMatchEntry {
+  storage_filename: string;
+  drive_file_id: string;
+  drive_file_name: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+/**
+ * 對單一 category 進行 Vision 比對與替換。
+ * lowFilenames：該 category 的低解析度檔名（已存在 Storage）
+ * highFiles：該 category 對應的 Drive 子資料夾下的高解析度圖
+ */
+export async function runVisionMatchForCategory(args: {
+  weeklyId: number;
+  categoryId: number;
+  lowFilenames: string[];
+  highFiles: DriveFile[];
+  providerToken: string;
+  onProgress?: (msg: string) => void;
+}): Promise<CategoryMatchResult> {
+  const { weeklyId, categoryId, lowFilenames, highFiles, providerToken, onProgress } = args;
+
+  if (lowFilenames.length === 0 || highFiles.length === 0) {
+    return { replaced: 0, skipped: lowFilenames.length, driveFolderId: '' };
+  }
+
+  const tmpDir = join('/tmp', `image-match-${weeklyId}-cat${categoryId}`);
+  const lowDir = join(tmpDir, 'low');
+  const highDir = join(tmpDir, 'high');
+
+  try {
+    mkdirSync(lowDir, { recursive: true });
+    mkdirSync(highDir, { recursive: true });
+
+    // Download low-res from Storage
+    for (const filename of lowFilenames) {
+      const path = `articles/${weeklyId}/images/${filename}`;
+      const { data, error } = await getSupabase().storage.from('weekly').download(path);
+      if (error) throw new Error(`Storage download error (${filename}): ${error.message}`);
+      writeFileSync(join(lowDir, filename), Buffer.from(await data.arrayBuffer()));
+    }
+
+    // Download high-res from Drive
+    const driveBufferMap = new Map<string, { file: DriveFile; buffer: Buffer }>();
+    for (const file of highFiles) {
+      const buffer = await downloadFile(providerToken, file.id);
+      const safeFilename = `${file.id}_${file.name}`;
+      writeFileSync(join(highDir, safeFilename), buffer);
+      driveBufferMap.set(file.id, { file, buffer });
+    }
+
+    onProgress?.(`category ${categoryId}: AI 比對 ${lowFilenames.length} 張 vs ${highFiles.length} 張`);
+
+    const lowList = lowFilenames.join(', ');
+    const highList = highFiles.map((f) => `${f.id}_${f.name}`).join(', ');
+
+    const prompt = `You are an image matching assistant. Match each low-resolution image with its high-resolution original.
+
+## Directories
+
+- Low-resolution images: ${lowDir}/
+  Files: ${lowList}
+
+- High-resolution images: ${highDir}/
+  Files: ${highList}
+
+## Instructions
+
+CRITICAL: To minimize turns, issue MULTIPLE Read tool calls in parallel (up to 10 per response). Do NOT read images one at a time. After reading all images, output the final JSON in one response.
+
+1. Use Read tool with parallel calls to view images in both directories.
+2. Compare visually and match each low-res image to its high-res counterpart.
+3. High-res filenames are formatted: {driveFileId}_{originalName}
+
+Output ONLY a JSON array (no other text) when matching is complete:
+[{"storage_filename":"image1.png","drive_file_id":"the-drive-id-part-before-underscore","drive_file_name":"originalName.jpg","confidence":"high"}]
+
+Rules:
+- confidence: "high" (clearly same image), "medium" (likely same), "low" (uncertain)
+- If no match exists, omit that image
+- Each high-res image can only match one low-res image`;
+
+    const totalImages = lowFilenames.length + highFiles.length;
+    const estimatedTurns = Math.max(20, Math.ceil(totalImages / 3) + 10);
+
+    const result = await runSessionWithStreaming(prompt, {
+      weeklyId,
+      model: 'opus',
+      maxTurns: estimatedTurns,
+      allowedTools: ['Read', 'Glob'],
+    });
+
+    const jsonMatch = result.match(/\[[\s\S]*?\]/);
+    if (!jsonMatch) {
+      console.warn(`[image-matcher cat${categoryId}] No JSON in Vision response`);
+      return { replaced: 0, skipped: lowFilenames.length, driveFolderId: '' };
+    }
+
+    let mappings: VisionMatchEntry[];
+    try {
+      mappings = JSON.parse(jsonMatch[0]);
+    } catch {
+      console.warn(`[image-matcher cat${categoryId}] JSON parse error`);
+      return { replaced: 0, skipped: lowFilenames.length, driveFolderId: '' };
+    }
+
+    let replaced = 0;
+    for (const m of mappings) {
+      if (m.confidence === 'low') continue;
+      const driveImage = driveBufferMap.get(m.drive_file_id);
+      if (!driveImage) continue;
+      onProgress?.(`category ${categoryId}: 替換 ${m.storage_filename} → ${m.drive_file_name}`);
+      const compressed = await compressImage(driveImage.buffer, driveImage.file.mimeType);
+      await uploadImage(weeklyId, m.storage_filename, compressed.buffer, compressed.mimeType);
+      replaced++;
+    }
+
+    return { replaced, skipped: lowFilenames.length - replaced, driveFolderId: '' };
+  } finally {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`[image-matcher cat${categoryId}] cleanup failed:`, err);
+    }
+  }
+}
