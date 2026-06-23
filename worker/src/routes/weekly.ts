@@ -13,7 +13,8 @@ import {
   getServiceAccessToken,
   isServiceAccountConfigured,
 } from '../services/google-drive-auth.js';
-import { matchAndReplaceImages } from '../services/image-matcher.js';
+import { matchAndReplacePerCategory } from '../services/image-matcher.js';
+import { parseWeeklyMarkdown } from '../services/ai-parser.js';
 
 const FOLDER_URL_RE = /\/folders\/([a-zA-Z0-9_-]+)/;
 
@@ -114,12 +115,20 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
 
           await broadcastImageReplaceProgress(taskId, {
             step: 'matching',
+            progress: 'AI 解析週報結構...',
+          });
+
+          // per-category 比對需要 ParsedWeekly 拿到 image→category 對應
+          const parsed = await parseWeeklyMarkdown(originalMd, weeklyId);
+
+          await broadcastImageReplaceProgress(taskId, {
+            step: 'matching',
             progress: 'AI 圖片比對中...',
           });
 
-          const replaced = await matchAndReplaceImages({
+          const outcome = await matchAndReplacePerCategory({
             weeklyId,
-            markdown: originalMd,
+            parsed,
             providerToken: driveToken,
             driveFolderId,
             onProgress: async (msg) => {
@@ -132,7 +141,7 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
 
           await insertAuditLog({
             user_email: user_email || null,
-            action: 'import',
+            action: 'image_match',
             table_name: 'weekly',
             record_id: weeklyId,
             old_data: null,
@@ -141,14 +150,19 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
               weekly_id: weeklyId,
               step: 'replace_images',
               drive_folder_url: driveFolderUrl,
-              replaced,
+              strategy: outcome.strategy,
+              drive_structure: outcome.driveStructure,
+              folder_mapping: outcome.folderMapping,
+              unmapped_folders: outcome.unmappedFolders,
+              per_category: outcome.perCategory,
+              total_replaced: outcome.totalReplaced,
             },
           });
 
           await broadcastImageReplaceProgress(taskId, {
             step: 'completed',
-            progress: `完成，共替換 ${replaced} 張圖片`,
-            replaced,
+            progress: `完成，共替換 ${outcome.totalReplaced} 張圖片`,
+            replaced: outcome.totalReplaced,
           });
         } catch (error) {
           request.log.error({ err: error }, '[replace-images] Failed');
