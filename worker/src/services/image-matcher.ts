@@ -556,17 +556,20 @@ Rules:
 
 export interface PerCategoryMatchOutcome {
   totalReplaced: number;
-  perCategory: Record<number, CategoryMatchResult>;
-  strategy: 'per-category' | 'skipped-flat' | 'skipped-mapping-failed';
-  folderMapping: Record<string, number>;
-  unmappedFolders: string[];
-  driveStructure:
-    | { mode: 'categorized'; subfoldersCount: number }
-    | { mode: 'flat'; reason: string };
+  strategy: MatchStrategy;
+  prefixMatched: number;
+  visionMatched: number;
+  driveTotal: number;
+  lowResTotal: number;
+  orphanLowAfter: string[];
+  unparseableHighRes: string[];
+  conflictTriples: string[];
 }
 
 /**
- * 主入口：分類別逐版比對。失敗時嚴格 fallback（跳過替換，保留低解析度）。
+ * 主入口：prefix-first 兩段式比對。
+ * Pass 1：deterministic JOIN via x-x-x.ext prefix
+ * Pass 2：Vision fallback per category（沿用 runVisionMatchForCategory）
  */
 export async function matchAndReplacePerCategory(options: {
   weeklyId: number;
@@ -577,90 +580,92 @@ export async function matchAndReplacePerCategory(options: {
 }): Promise<PerCategoryMatchOutcome> {
   const { weeklyId, parsed, providerToken, driveFolderId, onProgress } = options;
 
-  onProgress?.('偵測 Drive 結構...');
-  const structure = await detectDriveStructure(providerToken, driveFolderId);
+  const emptyOutcome = (strategy: MatchStrategy, driveTotal: number, lowResTotal: number): PerCategoryMatchOutcome => ({
+    totalReplaced: 0,
+    strategy,
+    prefixMatched: 0,
+    visionMatched: 0,
+    driveTotal,
+    lowResTotal,
+    orphanLowAfter: [],
+    unparseableHighRes: [],
+    conflictTriples: [],
+  });
 
-  if (structure.mode === 'flat') {
-    onProgress?.(`Drive 為平鋪結構（${structure.reason}），跳過高解析度替換`);
-    return {
-      totalReplaced: 0,
-      perCategory: {},
-      strategy: 'skipped-flat',
-      folderMapping: {},
-      unmappedFolders: [],
-      driveStructure: structure,
-    };
+  onProgress?.('列出 Drive 高解析度圖...');
+  const highFiles = await listImagesRecursive(providerToken, driveFolderId);
+  const lowMap = deriveImageTripleMap(parsed);
+
+  if (highFiles.length === 0) {
+    onProgress?.('Drive 沒有任何圖檔，跳過替換');
+    return emptyOutcome('skipped-no-drive-images', 0, lowMap.size);
+  }
+  if (lowMap.size === 0) {
+    onProgress?.('Markdown 無圖片引用，跳過替換');
+    return emptyOutcome('skipped-no-low-res', highFiles.length, 0);
   }
 
-  onProgress?.(`AI 對應 ${structure.subfolders.length} 個子資料夾到分類...`);
-  const mapping = await mapDriveFoldersToCategories(structure.subfolders, weeklyId);
+  onProgress?.(`Pass 1 prefix 比對：${lowMap.size} 張低解析度 vs ${highFiles.length} 張 Drive 圖`);
+  const join = joinByTriple(lowMap, highFiles);
 
-  if (mapping.mappings.size === 0) {
-    onProgress?.('AI 無法對應任何子資料夾到分類，跳過');
-    return {
-      totalReplaced: 0,
-      perCategory: {},
-      strategy: 'skipped-mapping-failed',
-      folderMapping: {},
-      unmappedFolders: mapping.unmapped,
-      driveStructure: { mode: 'categorized', subfoldersCount: structure.subfolders.length },
-    };
+  let prefixMatched = 0;
+  for (const m of join.matched) {
+    onProgress?.(`替換 ${m.lowFilename} ← ${m.driveFileName}`);
+    const buffer = await downloadFile(providerToken, m.driveFileId);
+    const compressed = await compressImage(buffer, m.mimeType);
+    await uploadImage(weeklyId, m.lowFilename, compressed.buffer, compressed.mimeType);
+    prefixMatched += 1;
   }
 
-  const imageToCategory = deriveImageCategoryMap(parsed);
-  const categoryToImages = new Map<number, string[]>();
-  for (const [filename, catId] of imageToCategory) {
-    if (!categoryToImages.has(catId)) categoryToImages.set(catId, []);
-    categoryToImages.get(catId)!.push(filename);
-  }
+  const buckets = bucketOrphansByCategory(join.orphanLow, join.orphanHigh);
+  const visionEligibleCats = [...buckets.byCategory.entries()].filter(
+    ([, b]) => b.lowFilenames.length > 0 && b.highFiles.length > 0,
+  );
+  const visionAttempted = visionEligibleCats.length > 0;
 
-  const folderByCategory = new Map<number, string>();
-  for (const [folderId, catId] of mapping.mappings) {
-    folderByCategory.set(catId, folderId);
-  }
-
-  const perCategory: Record<number, CategoryMatchResult> = {};
-  let totalReplaced = 0;
-
-  for (const [catId, lowFilenames] of categoryToImages) {
-    const folderId = folderByCategory.get(catId);
-    if (!folderId) {
-      onProgress?.(`分類 ${catId} 無對應 Drive 子資料夾，跳過 ${lowFilenames.length} 張`);
-      perCategory[catId] = { replaced: 0, skipped: lowFilenames.length, driveFolderId: '' };
-      continue;
+  let visionMatched = 0;
+  const matchedLowFilenames = new Set<string>();
+  if (visionAttempted) {
+    onProgress?.(`Pass 2 Vision fallback：${visionEligibleCats.length} 個分類有漏網圖檔`);
+    for (const [catId, bucket] of visionEligibleCats) {
+      const result = await runVisionMatchForCategory({
+        weeklyId,
+        categoryId: catId,
+        lowFilenames: bucket.lowFilenames,
+        highFiles: bucket.highFiles,
+        providerToken,
+        onProgress,
+      });
+      visionMatched += result.replaced;
+      // runVisionMatchForCategory doesn't return which specific files matched,
+      // so for orphanLowAfter we conservatively keep all orphan low filenames
+      // and subtract the count below. Use bucket size when fully replaced; else leave all.
+      if (result.replaced === bucket.lowFilenames.length) {
+        for (const fn of bucket.lowFilenames) matchedLowFilenames.add(fn);
+      }
     }
-
-    onProgress?.(`分類 ${catId}: 列出 Drive 高解析度圖...`);
-    const highFiles = await listImagesRecursive(providerToken, folderId);
-    if (highFiles.length === 0) {
-      onProgress?.(`分類 ${catId} 的 Drive 資料夾沒有圖片`);
-      perCategory[catId] = { replaced: 0, skipped: lowFilenames.length, driveFolderId: folderId };
-      continue;
-    }
-
-    const result = await runVisionMatchForCategory({
-      weeklyId,
-      categoryId: catId,
-      lowFilenames,
-      highFiles,
-      providerToken,
-      onProgress,
-    });
-    perCategory[catId] = { ...result, driveFolderId: folderId };
-    totalReplaced += result.replaced;
   }
 
-  const folderMapping: Record<string, number> = {};
-  for (const [folderId, catId] of mapping.mappings) {
-    folderMapping[folderId] = catId;
-  }
+  const orphanLowAfter = join.orphanLow
+    .map((o) => o.filename)
+    .filter((fn) => !matchedLowFilenames.has(fn));
+
+  const strategy = computeStrategy({
+    driveTotal: highFiles.length,
+    lowResTotal: lowMap.size,
+    prefixMatched,
+    visionAttempted,
+  });
 
   return {
-    totalReplaced,
-    perCategory,
-    strategy: 'per-category',
-    folderMapping,
-    unmappedFolders: mapping.unmapped,
-    driveStructure: { mode: 'categorized', subfoldersCount: structure.subfolders.length },
+    totalReplaced: prefixMatched + visionMatched,
+    strategy,
+    prefixMatched,
+    visionMatched,
+    driveTotal: highFiles.length,
+    lowResTotal: lowMap.size,
+    orphanLowAfter,
+    unparseableHighRes: buckets.unknownHighRes.map((f) => f.name),
+    conflictTriples: join.conflictTriples,
   };
 }

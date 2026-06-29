@@ -149,7 +149,7 @@ export async function runImportWorker(
               onProgress: async (msg) => updateProgress('replacing_images', msg),
             });
             console.log(
-              `[replacing_images] strategy=${outcome.strategy}, replaced=${outcome.totalReplaced}`,
+              `[replacing_images] strategy=${outcome.strategy}, replaced=${outcome.totalReplaced}, prefix=${outcome.prefixMatched}, vision=${outcome.visionMatched}`,
             );
             await writeAuditLog({
               user_email: userEmail || null,
@@ -161,11 +161,14 @@ export async function runImportWorker(
               metadata: {
                 weekly_id: weeklyId,
                 strategy: outcome.strategy,
-                drive_structure: outcome.driveStructure,
-                folder_mapping: outcome.folderMapping,
-                unmapped_folders: outcome.unmappedFolders,
-                per_category: outcome.perCategory,
                 total_replaced: outcome.totalReplaced,
+                prefix_matched: outcome.prefixMatched,
+                vision_matched: outcome.visionMatched,
+                drive_total: outcome.driveTotal,
+                low_res_total: outcome.lowResTotal,
+                orphan_low_after: outcome.orphanLowAfter,
+                unparseable_high_res: outcome.unparseableHighRes,
+                conflict_triples: outcome.conflictTriples,
               },
             });
           } catch (err) {
