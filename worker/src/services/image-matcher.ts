@@ -191,6 +191,46 @@ export function joinByTriple(
   return { matched, orphanLow, orphanHigh, conflictTriples };
 }
 
+export interface OrphanBuckets {
+  byCategory: Map<number, { lowFilenames: string[]; highFiles: DriveFile[] }>;
+  unknownHighRes: DriveFile[];
+}
+
+/**
+ * Pass 2 準備：把 Pass 1 的孤兒依 categoryId 分桶。
+ * - orphanLow 依 triple.categoryId 分組
+ * - orphanHigh 依 prefix?.categoryId 分組；prefix=null 進 unknownHighRes（不參與 Vision）
+ */
+export function bucketOrphansByCategory(
+  orphanLow: OrphanLow[],
+  orphanHigh: OrphanHigh[],
+): OrphanBuckets {
+  const byCategory = new Map<number, { lowFilenames: string[]; highFiles: DriveFile[] }>();
+  const ensure = (catId: number) => {
+    let bucket = byCategory.get(catId);
+    if (!bucket) {
+      bucket = { lowFilenames: [], highFiles: [] };
+      byCategory.set(catId, bucket);
+    }
+    return bucket;
+  };
+
+  for (const o of orphanLow) {
+    ensure(o.triple.categoryId).lowFilenames.push(o.filename);
+  }
+
+  const unknownHighRes: DriveFile[] = [];
+  for (const o of orphanHigh) {
+    if (!o.prefix) {
+      unknownHighRes.push(o.file);
+      continue;
+    }
+    ensure(o.prefix.categoryId).highFiles.push(o.file);
+  }
+
+  return { byCategory, unknownHighRes };
+}
+
 export type DriveStructure =
   | { mode: 'categorized'; subfolders: DriveSubfolder[] }
   | { mode: 'flat'; reason: string };
