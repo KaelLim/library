@@ -36,6 +36,39 @@ export function parseDrivePrefix(
 
 const IMAGE_FILENAME_REGEX = /\/images\/(image\d+\.\w+)\)/g;
 
+export type ImageTriple = { categoryId: number; articleIdx: number; imageIdx: number };
+
+/**
+ * 從 parse 結果推導每張低解析度圖對應的三元組 (categoryId, articleIdx, imageIdx)。
+ * - articleIdx：該分類內第幾篇文稿（1-based）
+ * - imageIdx：該篇 article.content 中第幾張圖（1-based，依 regex 順序）
+ * 同檔名跨多版引用時，第一次出現勝出。
+ */
+export function deriveImageTripleMap(parsed: ParsedWeekly): Map<string, ImageTriple> {
+  const map = new Map<string, ImageTriple>();
+  for (const category of parsed.categories) {
+    let articleIdx = 0;
+    for (const article of category.articles) {
+      articleIdx += 1;
+      IMAGE_FILENAME_REGEX.lastIndex = 0;
+      let imageIdx = 0;
+      let match;
+      while ((match = IMAGE_FILENAME_REGEX.exec(article.content)) !== null) {
+        imageIdx += 1;
+        const filename = match[1];
+        if (!map.has(filename)) {
+          map.set(filename, {
+            categoryId: category.category_id,
+            articleIdx,
+            imageIdx,
+          });
+        }
+      }
+    }
+  }
+  return map;
+}
+
 /**
  * 從 parse 結果推導每張低解析度圖對應的 category_id。
  * 同一檔名出現在多版時，第一次出現的 category 勝出（regex 順序）。
