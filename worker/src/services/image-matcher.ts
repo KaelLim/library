@@ -14,6 +14,26 @@ import { compressImage } from './image-compressor.js';
 import { extractJsonObject } from './ai-parser.js';
 import type { ParsedWeekly } from '../types/index.js';
 
+const DRIVE_PREFIX_REGEX = /^(\d+)-(\d+)-(\d+)/;
+
+/**
+ * 解析高解析度 Drive 檔名 prefix。
+ * 規則：開頭三組正整數以 `-` 分隔；categoryId 必須在 1-8；articleIdx / imageIdx 必須 ≥ 1。
+ * 容忍：前導 0、`-定稿`、` (1)` 等後綴。
+ */
+export function parseDrivePrefix(
+  filename: string,
+): { categoryId: number; articleIdx: number; imageIdx: number } | null {
+  const match = DRIVE_PREFIX_REGEX.exec(filename);
+  if (!match) return null;
+  const categoryId = Number(match[1]);
+  const articleIdx = Number(match[2]);
+  const imageIdx = Number(match[3]);
+  if (categoryId < 1 || categoryId > 8) return null;
+  if (articleIdx < 1 || imageIdx < 1) return null;
+  return { categoryId, articleIdx, imageIdx };
+}
+
 const IMAGE_FILENAME_REGEX = /\/images\/(image\d+\.\w+)\)/g;
 
 /**
