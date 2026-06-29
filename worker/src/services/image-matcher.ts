@@ -367,6 +367,7 @@ export interface PerCategoryMatchOutcome {
   strategy: MatchStrategy;
   prefixMatched: number;
   visionMatched: number;
+  unparseableMatched: number;
   driveTotal: number;
   lowResTotal: number;
   orphanLowAfter: string[];
@@ -393,6 +394,7 @@ export async function matchAndReplacePerCategory(options: {
     strategy,
     prefixMatched: 0,
     visionMatched: 0,
+    unparseableMatched: 0,
     driveTotal,
     lowResTotal,
     orphanLowAfter: [],
@@ -429,7 +431,7 @@ export async function matchAndReplacePerCategory(options: {
   const visionEligibleCats = [...buckets.byCategory.entries()].filter(
     ([, b]) => b.lowFilenames.length > 0 && b.highFiles.length > 0,
   );
-  const visionAttempted = visionEligibleCats.length > 0;
+  let visionAttempted = visionEligibleCats.length > 0;
 
   let visionMatched = 0;
   const matchedLowFilenames = new Set<string>();
@@ -454,6 +456,34 @@ export async function matchAndReplacePerCategory(options: {
     }
   }
 
+  // Pass 3: cross-category Vision over unparseable Drive files
+  let unparseableMatched = 0;
+  if (buckets.unknownHighRes.length > 0) {
+    const remainingOrphanLow = join.orphanLow
+      .map((o) => o.filename)
+      .filter((fn) => !matchedLowFilenames.has(fn));
+
+    if (remainingOrphanLow.length > 0) {
+      visionAttempted = true;
+      onProgress?.(
+        `Pass 3：${remainingOrphanLow.length} 張低解析度 vs ${buckets.unknownHighRes.length} 張無前綴 Drive 圖（全域 Vision fallback）`,
+      );
+      const pass3 = await runVisionMatchForCategory({
+        weeklyId,
+        categoryId: 0,
+        lowFilenames: remainingOrphanLow,
+        highFiles: buckets.unknownHighRes,
+        providerToken,
+        onProgress,
+      });
+      unparseableMatched = pass3.replaced;
+      visionMatched += pass3.replaced;
+      if (pass3.replaced === remainingOrphanLow.length) {
+        for (const fn of remainingOrphanLow) matchedLowFilenames.add(fn);
+      }
+    }
+  }
+
   const orphanLowAfter = join.orphanLow
     .map((o) => o.filename)
     .filter((fn) => !matchedLowFilenames.has(fn));
@@ -470,6 +500,7 @@ export async function matchAndReplacePerCategory(options: {
     strategy,
     prefixMatched,
     visionMatched,
+    unparseableMatched,
     driveTotal: highFiles.length,
     lowResTotal: lowMap.size,
     orphanLowAfter,

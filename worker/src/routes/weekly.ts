@@ -154,6 +154,7 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
               total_replaced: outcome.totalReplaced,
               prefix_matched: outcome.prefixMatched,
               vision_matched: outcome.visionMatched,
+              unparseable_matched: outcome.unparseableMatched,
               drive_total: outcome.driveTotal,
               low_res_total: outcome.lowResTotal,
               orphan_low_after: outcome.orphanLowAfter,
