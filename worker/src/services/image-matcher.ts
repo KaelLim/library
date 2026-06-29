@@ -3,15 +3,11 @@ import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import {
   downloadFile,
   listImagesRecursive,
-  listFiles,
-  filterSubfolders,
   type DriveFile,
-  type DriveSubfolder,
 } from './google-drive.js';
 import { runSessionWithStreaming } from './session-streamer.js';
 import { getSupabase, uploadImage } from './supabase.js';
 import { compressImage } from './image-compressor.js';
-import { extractJsonObject } from './ai-parser.js';
 import type { ParsedWeekly } from '../types/index.js';
 
 const DRIVE_PREFIX_REGEX = /^(\d+)-(\d+)-(\d+)/;
@@ -62,27 +58,6 @@ export function deriveImageTripleMap(parsed: ParsedWeekly): Map<string, ImageTri
             articleIdx,
             imageIdx,
           });
-        }
-      }
-    }
-  }
-  return map;
-}
-
-/**
- * 從 parse 結果推導每張低解析度圖對應的 category_id。
- * 同一檔名出現在多版時，第一次出現的 category 勝出（regex 順序）。
- */
-export function deriveImageCategoryMap(parsed: ParsedWeekly): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const category of parsed.categories) {
-    for (const article of category.articles) {
-      IMAGE_FILENAME_REGEX.lastIndex = 0;
-      let match;
-      while ((match = IMAGE_FILENAME_REGEX.exec(article.content)) !== null) {
-        const filename = match[1];
-        if (!map.has(filename)) {
-          map.set(filename, category.category_id);
         }
       }
     }
@@ -252,173 +227,6 @@ export function computeStrategy(input: {
   if (input.prefixMatched > 0 && input.visionAttempted) return 'prefix-with-fallback';
   if (input.prefixMatched === 0 && input.visionAttempted) return 'vision-only';
   return 'prefix-only';
-}
-
-export type DriveStructure =
-  | { mode: 'categorized'; subfolders: DriveSubfolder[] }
-  | { mode: 'flat'; reason: string };
-
-/**
- * 純函式：給 root 資料夾的直接子項清單，決定結構是 categorized 還是 flat。
- */
-export function decideDriveStructure(files: DriveFile[]): DriveStructure {
-  const subfolders = filterSubfolders(files);
-  const rootImages = files.filter((f) => f.mimeType.startsWith('image/'));
-
-  if (subfolders.length < 2) {
-    return { mode: 'flat', reason: `子資料夾不足（${subfolders.length}）` };
-  }
-  if (rootImages.length > 0) {
-    return { mode: 'flat', reason: `根目錄混有 ${rootImages.length} 張圖檔` };
-  }
-  return { mode: 'categorized', subfolders };
-}
-
-/**
- * IO 包裝：呼叫 Drive API 取得 root 子項，然後交給 decideDriveStructure 判斷。
- */
-export async function detectDriveStructure(
-  token: string,
-  rootFolderId: string,
-): Promise<DriveStructure> {
-  const files = await listFiles(token, rootFolderId);
-  return decideDriveStructure(files);
-}
-
-export interface FolderCategoryMapping {
-  mappings: Map<string, number>;
-  unmapped: string[];
-}
-
-const CATEGORY_TABLE = [
-  { id: 1, name: '全球焦點' },
-  { id: 2, name: '證嚴上人開示' },
-  { id: 3, name: '慈濟要聞' },
-  { id: 4, name: '慈善志業要聞' },
-  { id: 5, name: '里仁為美' },
-  { id: 6, name: '大醫行願' },
-  { id: 7, name: '春風化雨' },
-  { id: 8, name: '人文馨香' },
-];
-
-/**
- * 純函式：根據子資料夾清單組出給 AI 的 prompt。
- */
-export function buildFolderMappingPrompt(subfolders: DriveSubfolder[]): string {
-  const tableLines = CATEGORY_TABLE.map((c) => `| ${c.id} | ${c.name} |`).join('\n');
-  const folderLines = subfolders.map((f) => `- ${f.id}: "${f.name}"`).join('\n');
-
-  return `你要把 Google Drive 子資料夾名稱對應到慈濟週報的 8 個固定 category_id。
-
-對照表（必須使用其中之一，不可新建）：
-| category_id | name |
-|-------------|------|
-${tableLines}
-
-子資料夾命名可能包含版次（一版/二版/...）、分類名稱、狀態標記（完稿/定稿）等變體。請語意判斷，每個 folder_id 對應一個 category_id (1-8)；同一 category_id 不可被多個 folder 同時對到。無法判斷請列入 unmapped。
-
-子資料夾清單：
-${folderLines}
-
-CRITICAL OUTPUT CONTRACT:
-- 整段回應必須是單一 JSON 物件，第一個字元 \`{\`，最後一個字元 \`}\`。
-- 不可有 prose、code fence、說明文字。
-
-輸出格式：
-{"mappings":[{"folder_id":"...","category_id":1},...],"unmapped":["folder_id_x",...]}`;
-}
-
-/**
- * 純函式：驗證 AI 回傳的 mapping，回傳安全的對應表。
- * - category_id 超出 1-8 → unmapped
- * - 重複的 category_id → 所有衝突 folder 全進 unmapped
- * - AI 漏掉的 folder_id → unmapped
- */
-export function validateFolderMappingResponse(
-  raw: unknown,
-  allFolderIds: string[],
-): FolderCategoryMapping {
-  const empty: FolderCategoryMapping = { mappings: new Map(), unmapped: [...allFolderIds] };
-  if (!raw || typeof raw !== 'object') return empty;
-  const rawObj = raw as { mappings?: unknown; unmapped?: unknown };
-  const rawMappings = Array.isArray(rawObj.mappings) ? rawObj.mappings : [];
-  const rawUnmapped = Array.isArray(rawObj.unmapped) ? rawObj.unmapped : [];
-
-  // Phase 1: collect valid (folder_id, category_id) pairs
-  const candidates: Array<{ folder_id: string; category_id: number }> = [];
-  const explicitlyUnmapped = new Set<string>();
-  for (const u of rawUnmapped) {
-    if (typeof u === 'string') explicitlyUnmapped.add(u);
-  }
-
-  for (const entry of rawMappings) {
-    if (!entry || typeof entry !== 'object') continue;
-    const e = entry as { folder_id?: unknown; category_id?: unknown };
-    if (typeof e.folder_id !== 'string') continue;
-    if (typeof e.category_id !== 'number' || !Number.isInteger(e.category_id)) continue;
-    if (e.category_id < 1 || e.category_id > 8) continue;
-    if (!allFolderIds.includes(e.folder_id)) continue;
-    if (explicitlyUnmapped.has(e.folder_id)) continue;
-    candidates.push({ folder_id: e.folder_id, category_id: e.category_id });
-  }
-
-  // Phase 2: detect category_id collisions; collisions exclude ALL involved folders
-  const categoryCount = new Map<number, number>();
-  for (const c of candidates) {
-    categoryCount.set(c.category_id, (categoryCount.get(c.category_id) ?? 0) + 1);
-  }
-  const mappings = new Map<string, number>();
-  const collisionFolders = new Set<string>();
-  for (const c of candidates) {
-    if ((categoryCount.get(c.category_id) ?? 0) > 1) {
-      collisionFolders.add(c.folder_id);
-    } else {
-      mappings.set(c.folder_id, c.category_id);
-    }
-  }
-
-  // Phase 3: build unmapped — every folder not in mappings
-  const unmapped = allFolderIds.filter((id) => !mappings.has(id));
-
-  return { mappings, unmapped };
-}
-
-/**
- * 呼叫 AI 將 Drive 子資料夾名稱對應到 category_id (1-8)。
- * AI 回傳 JSON 後經 validateFolderMappingResponse 嚴格驗證。
- */
-export async function mapDriveFoldersToCategories(
-  subfolders: DriveSubfolder[],
-  weeklyId: number,
-): Promise<FolderCategoryMapping> {
-  if (subfolders.length === 0) {
-    return { mappings: new Map(), unmapped: [] };
-  }
-
-  const prompt = buildFolderMappingPrompt(subfolders);
-  const resultText = await runSessionWithStreaming(prompt, {
-    weeklyId,
-    model: 'opus',
-  });
-
-  if (!resultText) {
-    console.error('[image-matcher] folder mapping: empty AI response');
-    return { mappings: new Map(), unmapped: subfolders.map((f) => f.id) };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(extractJsonObject(resultText));
-  } catch (err) {
-    console.error('[image-matcher] folder mapping: JSON parse failed');
-    console.error('AI response preview (first 500 chars):', resultText.substring(0, 500));
-    return { mappings: new Map(), unmapped: subfolders.map((f) => f.id) };
-  }
-
-  return validateFolderMappingResponse(
-    parsed,
-    subfolders.map((f) => f.id),
-  );
 }
 
 export interface CategoryMatchResult {
