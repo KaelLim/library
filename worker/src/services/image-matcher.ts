@@ -90,6 +90,107 @@ export function deriveImageCategoryMap(parsed: ParsedWeekly): Map<string, number
   return map;
 }
 
+export interface PrefixMatch {
+  lowFilename: string;
+  driveFileId: string;
+  driveFileName: string;
+  mimeType: string;
+}
+
+export interface OrphanLow {
+  filename: string;
+  triple: ImageTriple;
+}
+
+export interface OrphanHigh {
+  file: DriveFile;
+  prefix: { categoryId: number; articleIdx: number; imageIdx: number } | null;
+}
+
+export interface JoinOutcome {
+  matched: PrefixMatch[];
+  orphanLow: OrphanLow[];
+  orphanHigh: OrphanHigh[];
+  conflictTriples: string[];
+}
+
+function tripleKey(t: { categoryId: number; articleIdx: number; imageIdx: number }): string {
+  return `${t.categoryId}-${t.articleIdx}-${t.imageIdx}`;
+}
+
+/**
+ * Pass 1：以三元組 key 將低解析度與高解析度做 deterministic JOIN。
+ * 衝突（多個 Drive 檔解析出同一 key） → 該 low 與所有 high 皆進 orphans。
+ * 解不出 prefix 的 high → 進 orphanHigh，prefix=null。
+ */
+export function joinByTriple(
+  lowMap: Map<string, ImageTriple>,
+  highFiles: DriveFile[],
+): JoinOutcome {
+  const highByKey = new Map<string, DriveFile[]>();
+  const unparseable: DriveFile[] = [];
+
+  for (const file of highFiles) {
+    const prefix = parseDrivePrefix(file.name);
+    if (!prefix) {
+      unparseable.push(file);
+      continue;
+    }
+    const key = tripleKey(prefix);
+    const list = highByKey.get(key);
+    if (list) list.push(file);
+    else highByKey.set(key, [file]);
+  }
+
+  const matched: PrefixMatch[] = [];
+  const orphanLow: OrphanLow[] = [];
+  const conflictTriples: string[] = [];
+  const claimedHighIds = new Set<string>();
+  const conflictedHighIds = new Set<string>();
+
+  for (const [filename, triple] of lowMap) {
+    const key = tripleKey(triple);
+    const candidates = highByKey.get(key);
+    if (!candidates || candidates.length === 0) {
+      orphanLow.push({ filename, triple });
+      continue;
+    }
+    if (candidates.length >= 2) {
+      conflictTriples.push(key);
+      orphanLow.push({ filename, triple });
+      for (const c of candidates) conflictedHighIds.add(c.id);
+      continue;
+    }
+    const high = candidates[0];
+    matched.push({
+      lowFilename: filename,
+      driveFileId: high.id,
+      driveFileName: high.name,
+      mimeType: high.mimeType,
+    });
+    claimedHighIds.add(high.id);
+  }
+
+  const orphanHigh: OrphanHigh[] = [];
+  for (const file of highFiles) {
+    if (claimedHighIds.has(file.id)) continue;
+    if (conflictedHighIds.has(file.id)) {
+      const prefix = parseDrivePrefix(file.name);
+      orphanHigh.push({ file, prefix });
+      continue;
+    }
+    if (unparseable.includes(file)) {
+      orphanHigh.push({ file, prefix: null });
+      continue;
+    }
+    // parseable but its triple had no low-res counterpart
+    const prefix = parseDrivePrefix(file.name);
+    orphanHigh.push({ file, prefix });
+  }
+
+  return { matched, orphanLow, orphanHigh, conflictTriples };
+}
+
 export type DriveStructure =
   | { mode: 'categorized'; subfolders: DriveSubfolder[] }
   | { mode: 'flat'; reason: string };
