@@ -96,24 +96,3 @@ export async function downloadFile(token: string, fileId: string): Promise<Buffe
   const arrayBuffer = await resp.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
-
-export interface DriveSubfolder {
-  id: string;
-  name: string;
-}
-
-/**
- * 從 DriveFile 清單過濾出子資料夾。純函式，便於測試。
- */
-export function filterSubfolders(files: DriveFile[]): DriveSubfolder[] {
-  return files
-    .filter((f) => f.mimeType === 'application/vnd.google-apps.folder')
-    .map(({ id, name }) => ({ id, name }));
-}
-
-/**
- * 列出指定 Drive 資料夾的直接子資料夾（不遞迴）。
- */
-export async function listSubfolders(token: string, parentId: string): Promise<DriveSubfolder[]> {
-  return filterSubfolders(await listFiles(token, parentId));
-}
