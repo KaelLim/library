@@ -231,6 +231,29 @@ export function bucketOrphansByCategory(
   return { byCategory, unknownHighRes };
 }
 
+export type MatchStrategy =
+  | 'prefix-only'
+  | 'prefix-with-fallback'
+  | 'vision-only'
+  | 'skipped-no-drive-images'
+  | 'skipped-no-low-res';
+
+/**
+ * 從計數器決定 audit log strategy 欄位。判定順序見 spec §6。
+ */
+export function computeStrategy(input: {
+  driveTotal: number;
+  lowResTotal: number;
+  prefixMatched: number;
+  visionAttempted: boolean;
+}): MatchStrategy {
+  if (input.driveTotal === 0) return 'skipped-no-drive-images';
+  if (input.lowResTotal === 0) return 'skipped-no-low-res';
+  if (input.prefixMatched > 0 && input.visionAttempted) return 'prefix-with-fallback';
+  if (input.prefixMatched === 0 && input.visionAttempted) return 'vision-only';
+  return 'prefix-only';
+}
+
 export type DriveStructure =
   | { mode: 'categorized'; subfolders: DriveSubfolder[] }
   | { mode: 'flat'; reason: string };
