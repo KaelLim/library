@@ -4,6 +4,7 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { Router } from '@vaadin/router';
 import type { Article, Category } from '../types/index.js';
 import { getArticle, updateArticle, getCategories } from '../services/articles.js';
+import { uploadArticleImage } from '../services/worker.js';
 import { toastStore } from '../stores/toast-store.js';
 import '../components/layout/tc-app-shell.js';
 import '../components/ui/tc-button.js';
@@ -766,23 +767,47 @@ export class PageArticleEdit extends LitElement {
 
   private insertImage(): void {
     if (!this.textarea) return;
+    if (!this.articleId) {
+      toastStore.error('文稿未載入，無法上傳圖片');
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/png,image/webp';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (file) {
+        void this.uploadAndInsertImage(file);
+      }
+    });
+    input.click();
+  }
+
+  private async uploadAndInsertImage(file: File): Promise<void> {
+    if (!this.textarea) return;
+
+    const altText = file.name.replace(/\.[^.]+$/, '') || '圖片';
+    const placeholder = `![${altText}](uploading…)`;
 
     const start = this.textarea.selectionStart;
     const before = this.content.substring(0, start);
     const after = this.content.substring(start);
+    this.content = before + placeholder + after;
 
-    const altText = '圖片說明';
-    const imageUrl = 'https://';
-
-    this.content = before + `![${altText}](${imageUrl})` + after;
-    this.textarea.focus();
-
-    requestAnimationFrame(() => {
-      // Select the URL part
-      const urlStart = start + altText.length + 4;
-      const urlEnd = urlStart + imageUrl.length;
-      this.textarea.setSelectionRange(urlStart, urlEnd);
-    });
+    try {
+      const { url } = await uploadArticleImage(file, this.articleId);
+      this.content = this.content.replace(placeholder, `![${altText}](${url})`);
+      toastStore.success('圖片已上傳');
+      requestAnimationFrame(() => {
+        const cursor = before.length + `![${altText}](${url})`.length;
+        this.textarea.focus();
+        this.textarea.setSelectionRange(cursor, cursor);
+      });
+    } catch (err) {
+      this.content = this.content.replace(placeholder, '');
+      toastStore.error(err instanceof Error ? err.message : '圖片上傳失敗');
+    }
   }
 
   private insertCodeBlock(): void {

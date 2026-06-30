@@ -75,6 +75,45 @@ export async function generateArticleAudio(articleId: number): Promise<GenerateA
   });
 }
 
+export interface UploadImageResponse {
+  success: boolean;
+  url: string;
+  filename: string;
+}
+
+export async function uploadArticleImage(
+  file: File,
+  articleId: number,
+): Promise<UploadImageResponse> {
+  const form = new FormData();
+  form.append('image', file, file.name);
+  form.append('article_id', String(articleId));
+
+  const headers: Record<string, string> = {
+    apikey: SUPABASE_ANON_KEY,
+  };
+  const token = authStore.session?.access_token;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${WORKER_URL}/upload-image`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+
+  if (!response.ok) {
+    const error: ApiError = await response.json().catch(() => ({
+      error: 'UNKNOWN_ERROR',
+      message: `Request failed with status ${response.status}`,
+    }));
+    throw new Error(error.message);
+  }
+
+  return response.json();
+}
+
 export interface HealthResponse {
   status: 'ok' | 'error';
   timestamp: string;

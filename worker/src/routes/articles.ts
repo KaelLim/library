@@ -1,12 +1,16 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { randomBytes } from 'node:crypto';
 import { rewriteForDigital, generateDescription } from '../services/ai-rewriter.js';
 import { generateArticleAudio } from '../services/tts.js';
+import { compressImage } from '../services/image-compressor.js';
+import { isSupportedImage, MAX_COVER_SIZE } from '../services/book-upload.js';
 import { requireAuth } from '../middleware/auth.js';
 import {
   getArticleById,
   insertArticle,
   insertAuditLog,
   updateArticle,
+  uploadImage,
   getArticlesWithoutDescription,
   broadcastAudioProgress,
 } from '../services/supabase.js';
@@ -279,6 +283,96 @@ export const articleRoutes: FastifyPluginAsync = async (fastify) => {
       }
     })().catch(() => {});
   });
+
+  // Upload image for article editor (multipart) — 壓縮後存到 weekly bucket，回傳相對路徑
+  fastify.post(
+    '/upload-image',
+    {
+      preHandler: [requireAuth],
+      config: { rateLimit: { max: 60, timeWindow: '1 hour' } },
+    },
+    async (request, reply) => {
+      let imageBuffer: Buffer | null = null;
+      let originalFilename = '';
+      let articleId: number | null = null;
+
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === 'file' && part.fieldname === 'image') {
+            const chunks: Buffer[] = [];
+            for await (const chunk of part.file) chunks.push(chunk);
+            const buf = Buffer.concat(chunks);
+            if (buf.length > MAX_COVER_SIZE) {
+              return reply.status(400).send({
+                error: 'IMAGE_TOO_LARGE',
+                message: `圖片超過上限 ${MAX_COVER_SIZE / 1024 / 1024}MB`,
+              });
+            }
+            if (!isSupportedImage(buf)) {
+              return reply.status(400).send({
+                error: 'INVALID_IMAGE',
+                message: '圖片必須是 JPG、PNG 或 WebP 格式',
+              });
+            }
+            imageBuffer = buf;
+            originalFilename = part.filename || 'image';
+          } else if (part.type === 'field' && part.fieldname === 'article_id') {
+            articleId = parseInt(String(part.value), 10);
+          }
+        }
+      } catch (err) {
+        request.log.error(err);
+        return reply.status(400).send({
+          error: 'UPLOAD_ERROR',
+          message: err instanceof Error ? err.message : '圖片讀取失敗',
+        });
+      }
+
+      if (!imageBuffer) {
+        return reply.status(400).send({ error: 'MISSING_IMAGE', message: 'image is required' });
+      }
+      if (!articleId || Number.isNaN(articleId)) {
+        return reply
+          .status(400)
+          .send({ error: 'MISSING_ARTICLE_ID', message: 'article_id is required' });
+      }
+
+      const article = await getArticleById(articleId);
+      if (!article) {
+        return reply
+          .status(404)
+          .send({ error: 'ARTICLE_NOT_FOUND', message: `Article ${articleId} not found` });
+      }
+
+      const sizeBefore = imageBuffer.length;
+      const compressed = await compressImage(imageBuffer, 'image/jpeg');
+      const filename = `edit-${Date.now()}-${randomBytes(4).toString('hex')}.${compressed.extension}`;
+      const relPath = await uploadImage(
+        article.weekly_id,
+        filename,
+        compressed.buffer,
+        compressed.mimeType,
+      );
+
+      await insertAuditLog({
+        user_email: (request as any).user?.email || null,
+        action: 'upload_image',
+        table_name: 'articles',
+        record_id: articleId,
+        old_data: null,
+        new_data: null,
+        metadata: {
+          weekly_id: article.weekly_id,
+          path: relPath,
+          original_filename: originalFilename,
+          size_before: sizeBefore,
+          size_after: compressed.buffer.length,
+        },
+      });
+
+      return { success: true, url: relPath, filename };
+    },
+  );
 
   // Get count of articles without description
   fastify.get('/articles-without-description', async () => {
