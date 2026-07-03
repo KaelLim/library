@@ -630,6 +630,7 @@ services:
       BOOKS_DIR: /app/books
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8973,http://localhost:8000,http://localhost:3001}
+      ALLOWED_PDF_HOSTS: ${ALLOWED_PDF_HOSTS:-}
     volumes:
       - ../.claude/skills:/.claude/skills:ro
       - ../books:/app/books:ro
