@@ -37,6 +37,7 @@ export class PageWeeklyList extends LitElement {
 
     .tabs-container {
       flex: 1;
+      min-width: 0;
     }
 
     .grid {

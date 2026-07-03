@@ -19,6 +19,7 @@ export class TcAppShell extends LitElement {
 
     .main {
       flex: 1;
+      min-width: 0;
       display: flex;
       flex-direction: column;
       margin-left: var(--sidebar-width);
