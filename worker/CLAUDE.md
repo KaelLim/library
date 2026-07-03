@@ -10,3 +10,20 @@
 | #1367 | 9:36 AM | 🟣 | Added Swagger/OpenAPI documentation to worker service | ~237 |
 | #1366 | 9:35 AM | 🔵 | Worker project lacks Swagger/OpenAPI documentation | ~217 |
 </claude-mem-context>
+
+## External PDF Reader
+
+`GET /books/r/ext?src=<encoded https URL>` renders the flip-book viewer
+for any PDF whose host is on the `ALLOWED_PDF_HOSTS` allowlist.
+
+- `src` (required) — URL-encoded HTTPS URL; host must match one of the
+  entries in `ALLOWED_PDF_HOSTS` exactly (no subdomain wildcards).
+- `title`, `desc`, `cover`, `author` — optional plain-text / URL OG meta;
+  `cover` runs through the same allowlist validation as `src`.
+- `turn=left|right` — flip direction; default `right` (LTR).
+
+`ALLOWED_PDF_HOSTS` is a comma-separated list of hostnames read from the
+env at boot (e.g. `tool.tzuchi-org.tw,another.tzuchi-org.tw`). Empty ⇒
+every request returns `HOST_NOT_ALLOWED`.
+
+Full spec: `docs/superpowers/specs/2026-07-03-external-pdf-reader-design.md`.
