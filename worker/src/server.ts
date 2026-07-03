@@ -17,6 +17,7 @@ import { articleRoutes } from './routes/articles.js';
 import { bookRoutes } from './routes/books.js';
 import { weeklyRoutes } from './routes/weekly.js';
 import { requireAuth } from './middleware/auth.js';
+import { validatePdfUrl, parseAllowedHosts } from './services/pdf-url-validator.js';
 
 // Initialize Supabase
 initSupabase();
@@ -79,6 +80,7 @@ await fastify.register(multipart, {
 // ===========================================
 
 const BOOKS_DIR = process.env.BOOKS_DIR || join(process.cwd(), 'books');
+const ALLOWED_PDF_HOSTS = parseAllowedHosts(process.env.ALLOWED_PDF_HOSTS);
 
 // 靜態檔案服務（reply.sendFile）
 await fastify.register(fastifyStatic, {
@@ -100,6 +102,93 @@ try {
 // 其餘路徑視為 book UUID，載入並渲染模板。
 const STATIC_EXTENSIONS = /\.(css|js|mjs|map|mp3|png|jpg|jpeg|svg|woff2?|ttf)$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// External-PDF viewer: renders the same flip-book template for any HTTPS PDF
+// on the ALLOWED_PDF_HOSTS allowlist. Query params supply the URL and optional
+// OG meta. PDF.js in the browser is the only entity that fetches the PDF,
+// so the worker has no outbound HTTP surface.
+// Spec: docs/superpowers/specs/2026-07-03-external-pdf-reader-design.md
+fastify.get<{
+  Querystring: Record<string, unknown>;
+}>('/books/r/ext', async (request, reply) => {
+  const q = request.query;
+
+  const pickString = (v: unknown): string | undefined =>
+    typeof v === 'string' ? v : undefined;
+
+  const src   = pickString(q.src);
+  const cover = pickString(q.cover);
+  const title = pickString(q.title)  ?? '';
+  const desc  = pickString(q.desc)   ?? '';
+  const author= pickString(q.author) ?? '';
+  const turn  = pickString(q.turn);
+
+  // ?src=a&src=b arrives as string[]; pickString returns undefined for that.
+  if (src === undefined && q.src !== undefined) {
+    return reply.status(400).send({ error: 'INVALID_SRC', message: '缺少 src 參數' });
+  }
+
+  const srcCheck = validatePdfUrl(src, ALLOWED_PDF_HOSTS);
+  if (!srcCheck.ok) {
+    const msg: Record<string, string> = {
+      MISSING_SRC:      '缺少 src 參數',
+      URL_TOO_LONG:     'src 超過 2048 字元',
+      INVALID_URL:      'src 不是有效 URL',
+      INVALID_SCHEME:   'src 必須使用 https',
+      HOST_NOT_ALLOWED: 'src 網域不在白名單',
+    };
+    return reply.status(400).send({
+      error: srcCheck.error,
+      message: msg[srcCheck.error] ?? 'src 不合法',
+    });
+  }
+
+  // Empty cover string (?cover=) is fine — just leaves og:image empty.
+  if (cover !== undefined && cover !== '') {
+    const coverCheck = validatePdfUrl(cover, ALLOWED_PDF_HOSTS);
+    if (!coverCheck.ok) {
+      return reply.status(400).send({
+        error: 'INVALID_COVER_URL',
+        message: 'cover 網址不合法',
+      });
+    }
+  }
+
+  const viewerConfig = {
+    pdf: src,
+    turnPage: turn === 'left' ? 'left' : 'right',
+    analytics: {
+      trackPageFlip: true,
+      trackZoom: true,
+      trackNavigation: true,
+      trackShare: true,
+      trackFullscreen: true,
+      trackReadingTime: true,
+    },
+  };
+
+  if (!bookTemplate) {
+    return reply.status(500).send({ error: 'Reader template not found' });
+  }
+
+  const injectedHtml = bookTemplate
+    .replace(
+      '<title>PDF Page Flip Demo</title>',
+      `<title>${escapeHtml(title || 'PDF Reader')}</title>
+    <meta property="og:title" content="${escapeAttr(title)}" />
+    <meta property="og:description" content="${escapeAttr(desc)}" />
+    <meta property="og:image" content="${escapeAttr(cover ?? '')}" />
+    <meta property="og:type" content="book" />
+    <meta property="book:author" content="${escapeAttr(author)}" />
+    <meta name="description" content="${escapeAttr(desc)}" />`
+    )
+    .replace(
+      /<script id="viewer-config" type="application\/json">[\s\S]*?<\/script>/,
+      `<script id="viewer-config" type="application/json">${safeJsonForScript(viewerConfig)}</script>`
+    );
+
+  return reply.type('text/html').send(injectedHtml);
+});
 
 fastify.get<{
   Params: { '*': string };
