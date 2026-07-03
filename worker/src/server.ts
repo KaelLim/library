@@ -131,11 +131,13 @@ fastify.get<{
   const srcCheck = validatePdfUrl(src, ALLOWED_PDF_HOSTS);
   if (!srcCheck.ok) {
     const msg: Record<string, string> = {
-      MISSING_SRC:      '缺少 src 參數',
-      URL_TOO_LONG:     'src 超過 2048 字元',
-      INVALID_URL:      'src 不是有效 URL',
-      INVALID_SCHEME:   'src 必須使用 https',
-      HOST_NOT_ALLOWED: 'src 網域不在白名單',
+      MISSING_SRC:          '缺少 src 參數',
+      URL_TOO_LONG:         'src 超過 2048 字元',
+      INVALID_URL:          'src 不是有效 URL',
+      INVALID_SCHEME:       'src 必須使用 https',
+      USERINFO_NOT_ALLOWED: 'src 不接受帳號密碼',
+      IP_HOST_NOT_ALLOWED:  'src 不接受 IP 位址',
+      HOST_NOT_ALLOWED:     'src 網域不在白名單',
     };
     return reply.status(400).send({
       error: srcCheck.error,

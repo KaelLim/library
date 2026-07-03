@@ -41,27 +41,27 @@ describe('validatePdfUrl', () => {
 
   it('rejects URL with userinfo', () => {
     expect(validatePdfUrl('https://u:p@tool.tzuchi-org.tw/a.pdf', ALLOW))
-      .toEqual({ ok: false, error: 'INVALID_URL' });
+      .toEqual({ ok: false, error: 'USERINFO_NOT_ALLOWED' });
   });
 
   it('rejects URL with only username', () => {
     expect(validatePdfUrl('https://u@tool.tzuchi-org.tw/a.pdf', ALLOW))
-      .toEqual({ ok: false, error: 'INVALID_URL' });
+      .toEqual({ ok: false, error: 'USERINFO_NOT_ALLOWED' });
   });
 
   it('rejects IPv4 host', () => {
     expect(validatePdfUrl('https://127.0.0.1/a.pdf', ALLOW))
-      .toEqual({ ok: false, error: 'INVALID_URL' });
+      .toEqual({ ok: false, error: 'IP_HOST_NOT_ALLOWED' });
   });
 
   it('rejects private IPv4 host', () => {
     expect(validatePdfUrl('https://192.168.0.5/a.pdf', ALLOW))
-      .toEqual({ ok: false, error: 'INVALID_URL' });
+      .toEqual({ ok: false, error: 'IP_HOST_NOT_ALLOWED' });
   });
 
   it('rejects bracketed IPv6 host', () => {
     expect(validatePdfUrl('https://[::1]/a.pdf', ALLOW))
-      .toEqual({ ok: false, error: 'INVALID_URL' });
+      .toEqual({ ok: false, error: 'IP_HOST_NOT_ALLOWED' });
   });
 
   it('rejects host not on allowlist', () => {

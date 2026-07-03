@@ -107,6 +107,8 @@ export type PdfUrlError =
   | 'INVALID_SRC'
   | 'INVALID_URL'
   | 'INVALID_SCHEME'
+  | 'USERINFO_NOT_ALLOWED'
+  | 'IP_HOST_NOT_ALLOWED'
   | 'HOST_NOT_ALLOWED'
   | 'URL_TOO_LONG';
 
@@ -122,12 +124,15 @@ export function validatePdfUrl(
 2. `src.length > 2048` → `URL_TOO_LONG`.
 3. `new URL(src)` throws → `INVALID_URL`.
 4. `url.protocol !== 'https:'` → `INVALID_SCHEME`.
-5. `url.username !== '' || url.password !== ''` → `INVALID_URL`.
-6. `url.hostname` matches an IPv4 dotted-quad regex, or contains `:`
-   (IPv6), or is bracketed (`[…]`) → `INVALID_URL`.
+5. `url.username !== '' || url.password !== ''` → `USERINFO_NOT_ALLOWED`.
+6. `url.hostname` matches an IPv4 dotted-quad regex or contains `:`
+   (IPv6, brackets stripped by the URL parser) → `IP_HOST_NOT_ALLOWED`.
 7. `url.hostname` (lowercased) is not `===` to any entry of
    `allowedHosts` → `HOST_NOT_ALLOWED`.
 8. Otherwise → `{ ok: true, url }`.
+
+Rules 5, 6 have their own distinct error codes (not a shared
+`INVALID_URL`) so the handler in §9 can surface actionable messages.
 
 The function is pure, does no DNS lookup, does no network I/O.
 
@@ -226,12 +231,13 @@ All 400s use the existing Fastify error shape:
 
 | Case | `error` | `message` |
 |------|--------|-----------|
-| `src` missing/array | `INVALID_SRC` | `缺少 src 參數` |
-| URL too long | `URL_TOO_LONG` | `src 超過 2048 字元` |
+| `src` missing / empty | `MISSING_SRC` | `缺少 src 參數` |
+| `src` sent as array (`?src=a&src=b`) | `INVALID_SRC` | `缺少 src 參數` |
+| URL too long (> 2048) | `URL_TOO_LONG` | `src 超過 2048 字元` |
 | URL parse fails | `INVALID_URL` | `src 不是有效 URL` |
-| Non-https | `INVALID_SCHEME` | `src 必須使用 https` |
-| userinfo present | `INVALID_URL` | `src 不接受帳號密碼` |
-| Host is IP | `INVALID_URL` | `src 不接受 IP 位址` |
+| Non-https scheme | `INVALID_SCHEME` | `src 必須使用 https` |
+| userinfo present | `USERINFO_NOT_ALLOWED` | `src 不接受帳號密碼` |
+| Host is IP (v4 or v6) | `IP_HOST_NOT_ALLOWED` | `src 不接受 IP 位址` |
 | Host not on allowlist | `HOST_NOT_ALLOWED` | `src 網域不在白名單` |
 | Cover URL fails **any** validation rule | `INVALID_COVER_URL` | `cover 網址不合法` |
 | Cover value is empty string | *(no error)* | (og:image left empty) |
@@ -248,10 +254,10 @@ Cover every rule in §6 exactly once, then a happy path:
 4. `'not a url'` → `INVALID_URL`
 5. `'http://tool.tzuchi-org.tw/a.pdf'` → `INVALID_SCHEME`
 6. `'ftp://tool.tzuchi-org.tw/a.pdf'` → `INVALID_SCHEME`
-7. `'https://user:pass@tool.tzuchi-org.tw/a.pdf'` → `INVALID_URL`
-8. `'https://127.0.0.1/a.pdf'` → `INVALID_URL`
-9. `'https://192.168.0.5/a.pdf'` → `INVALID_URL`
-10. `'https://[::1]/a.pdf'` → `INVALID_URL`
+7. `'https://user:pass@tool.tzuchi-org.tw/a.pdf'` → `USERINFO_NOT_ALLOWED`
+8. `'https://127.0.0.1/a.pdf'` → `IP_HOST_NOT_ALLOWED`
+9. `'https://192.168.0.5/a.pdf'` → `IP_HOST_NOT_ALLOWED`
+10. `'https://[::1]/a.pdf'` → `IP_HOST_NOT_ALLOWED`
 11. `'https://evil.com/a.pdf'` with allowlist `['tool.tzuchi-org.tw']` → `HOST_NOT_ALLOWED`
 12. `'https://evil.tool.tzuchi-org.tw/a.pdf'` (subdomain injection) → `HOST_NOT_ALLOWED`
 13. `'https://tool.tzuchi-org.tw.evil.com/a.pdf'` (suffix injection) → `HOST_NOT_ALLOWED`

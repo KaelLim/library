@@ -6,6 +6,8 @@ export type PdfUrlError =
   | 'INVALID_SRC'
   | 'INVALID_URL'
   | 'INVALID_SCHEME'
+  | 'USERINFO_NOT_ALLOWED'
+  | 'IP_HOST_NOT_ALLOWED'
   | 'HOST_NOT_ALLOWED'
   | 'URL_TOO_LONG';
 
@@ -38,8 +40,8 @@ export function validatePdfUrl(
   }
 
   if (url.protocol !== 'https:') return { ok: false, error: 'INVALID_SCHEME' };
-  if (url.username !== '' || url.password !== '') return { ok: false, error: 'INVALID_URL' };
-  if (isIpHost(url.hostname)) return { ok: false, error: 'INVALID_URL' };
+  if (url.username !== '' || url.password !== '') return { ok: false, error: 'USERINFO_NOT_ALLOWED' };
+  if (isIpHost(url.hostname)) return { ok: false, error: 'IP_HOST_NOT_ALLOWED' };
 
   const host = url.hostname; // already lowercased by URL parser
   if (!allowedHosts.includes(host)) return { ok: false, error: 'HOST_NOT_ALLOWED' };
