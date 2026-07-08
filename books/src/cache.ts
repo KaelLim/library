@@ -43,8 +43,18 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-export function buildCacheKey(pdfUrl: string, pageNum: number, scale: number): string {
-  return `${pdfUrl}::${pageNum}::${scale}`;
+export function buildCacheKey(
+  pdfUrl: string,
+  pageNum: number,
+  scale: number,
+  targetWidth?: number,
+  targetHeight?: number,
+): string {
+  const target =
+    targetWidth !== undefined && targetHeight !== undefined
+      ? `::${targetWidth}x${targetHeight}`
+      : '';
+  return `${pdfUrl}::${pageNum}::${scale}${target}`;
 }
 
 export async function getCachedPage(key: string): Promise<string | null> {

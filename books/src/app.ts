@@ -110,26 +110,81 @@ interface PageRenderResult {
   height: number;
 }
 
-async function renderPageToImage(pdf: PDFDocumentProxy, pageNum: number): Promise<PageRenderResult> {
-  const page = await pdf.getPage(pageNum);
-  const viewport = page.getViewport({ scale: RENDER_SCALE });
+// Pages match target within this fractional aspect delta render direct
+// (no letterbox composite step) — 0.5% covers rounding across viewport scales.
+const ASPECT_MATCH_EPSILON = 0.005;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-
-  // Use Display P3 color space when available (ISO 12639 color management)
-  const ctx = (canvas.getContext('2d', { colorSpace: 'display-p3' } as CanvasRenderingContext2DSettings)
+function get2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  return (canvas.getContext('2d', { colorSpace: 'display-p3' } as CanvasRenderingContext2DSettings)
     || canvas.getContext('2d'))!;
-  await page.render({ canvasContext: ctx, viewport }).promise;
+}
 
-  return {
-    dataUrl: SUPPORTS_WEBP
-      ? canvas.toDataURL('image/webp', 0.92)
-      : canvas.toDataURL('image/png'),
-    width: viewport.width,
-    height: viewport.height,
-  };
+function toDataUrl(canvas: HTMLCanvasElement): string {
+  return SUPPORTS_WEBP
+    ? canvas.toDataURL('image/webp', 0.92)
+    : canvas.toDataURL('image/png');
+}
+
+/**
+ * Render one PDF page to a data URL sized (targetWidth, targetHeight).
+ * If the page's native aspect matches the target within EPSILON, renders
+ * directly at target dims. Otherwise renders at native and composites onto
+ * a target-sized white canvas with aspect-fit (letterbox), so mixed-aspect
+ * PDFs (e.g. portrait cover + landscape spreads) don't get stretched by
+ * StPageFlip's uniform-size drawImage.
+ */
+async function renderPageToImage(
+  pdf: PDFDocumentProxy,
+  pageNum: number,
+  targetWidth: number,
+  targetHeight: number,
+): Promise<PageRenderResult> {
+  const page = await pdf.getPage(pageNum);
+  const nativeVp = page.getViewport({ scale: RENDER_SCALE });
+  const nativeAspect = nativeVp.width / nativeVp.height;
+  const targetAspect = targetWidth / targetHeight;
+
+  if (Math.abs(nativeAspect - targetAspect) / targetAspect < ASPECT_MATCH_EPSILON) {
+    // Fast path: native aspect ≈ target aspect → render direct at native dims.
+    const canvas = document.createElement('canvas');
+    canvas.width = nativeVp.width;
+    canvas.height = nativeVp.height;
+    const ctx = get2dContext(canvas);
+    await page.render({ canvasContext: ctx, viewport: nativeVp }).promise;
+    return { dataUrl: toDataUrl(canvas), width: nativeVp.width, height: nativeVp.height };
+  }
+
+  // Slow path: render at native then aspect-fit composite onto target-sized canvas.
+  const nativeCanvas = document.createElement('canvas');
+  nativeCanvas.width = nativeVp.width;
+  nativeCanvas.height = nativeVp.height;
+  const nativeCtx = get2dContext(nativeCanvas);
+  await page.render({ canvasContext: nativeCtx, viewport: nativeVp }).promise;
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = targetWidth;
+  outCanvas.height = targetHeight;
+  const outCtx = get2dContext(outCanvas);
+  outCtx.fillStyle = '#ffffff';
+  outCtx.fillRect(0, 0, targetWidth, targetHeight);
+
+  let dw: number, dh: number, dx: number, dy: number;
+  if (nativeAspect > targetAspect) {
+    // Native wider than target: fit width, letterbox top+bottom.
+    dw = targetWidth;
+    dh = targetWidth / nativeAspect;
+    dx = 0;
+    dy = (targetHeight - dh) / 2;
+  } else {
+    // Native taller than target: fit height, letterbox left+right.
+    dh = targetHeight;
+    dw = targetHeight * nativeAspect;
+    dx = (targetWidth - dw) / 2;
+    dy = 0;
+  }
+  outCtx.drawImage(nativeCanvas, dx, dy, dw, dh);
+
+  return { dataUrl: toDataUrl(outCanvas), width: targetWidth, height: targetHeight };
 }
 
 /**
@@ -139,16 +194,16 @@ async function renderPageToImage(pdf: PDFDocumentProxy, pageNum: number): Promis
 async function renderPageCached(
   pdf: PDFDocumentProxy,
   pageNum: number,
-  pdfUrl: string
+  pdfUrl: string,
+  targetWidth: number,
+  targetHeight: number,
 ): Promise<PageRenderResult> {
-  const key = buildCacheKey(pdfUrl, pageNum, RENDER_SCALE);
+  const key = buildCacheKey(pdfUrl, pageNum, RENDER_SCALE, targetWidth, targetHeight);
   const cached = await getCachedPage(key);
   if (cached) {
-    const page = await pdf.getPage(pageNum);
-    const vp = page.getViewport({ scale: RENDER_SCALE });
-    return { dataUrl: cached, width: vp.width, height: vp.height };
+    return { dataUrl: cached, width: targetWidth, height: targetHeight };
   }
-  const result = await renderPageToImage(pdf, pageNum);
+  const result = await renderPageToImage(pdf, pageNum, targetWidth, targetHeight);
   void setCachedPage(key, result.dataUrl);
   return result;
 }
@@ -284,16 +339,30 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
     // 1c. Extract table of contents (PDF outline)
     const tocTree = await extractToc(pdf).catch(() => null);
 
-    // 2. Render only the first page to get dimensions
+    // 2. Probe first N pages' viewports to determine target dims.
+    // We can't use firstPage alone: many books have a portrait cover +
+    // landscape spreads (or the reverse), and StPageFlip stretches every
+    // image to the constructor's uniform dims. Taking MAX across probe
+    // pages means no page gets clipped; mismatched aspects are letterboxed
+    // by renderPageToImage instead of stretched.
     loadingEl.dataset.state = 'rendering';
-    const firstPage = await renderPageCached(pdf, 1, pdfUrl);
-    const pageWidth = Math.round(firstPage.width);
-    const pageHeight = Math.round(firstPage.height);
+    const PROBE_COUNT = Math.min(5, numPages);
+    const probeVps = await Promise.all(
+      Array.from({ length: PROBE_COUNT }, (_, i) =>
+        pdf.getPage(i + 1).then(p => p.getViewport({ scale: RENDER_SCALE }))
+      )
+    );
+    const pageWidth = Math.round(Math.max(...probeVps.map(v => v.width)));
+    const pageHeight = Math.round(Math.max(...probeVps.map(v => v.height)));
+
     // Expose page aspect so thumbnail cells can reserve correct height
     // before any image has loaded.
     document.documentElement.style.setProperty(
       '--page-aspect', String(pageWidth / pageHeight)
     );
+
+    // Now render page 1 at the target dims.
+    const firstPage = await renderPageCached(pdf, 1, pdfUrl, pageWidth, pageHeight);
 
     // Page render cache: index → dataUrl (1-based)
     const renderedPages = new Map<number, string>();
@@ -343,7 +412,7 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
             continue;
           }
           try {
-            const data = await renderPageCached(pdf, originalPage, pdfUrl);
+            const data = await renderPageCached(pdf, originalPage, pdfUrl, pageWidth, pageHeight);
             renderedPages.set(originalPage, data.dataUrl);
             // Always inject into StPageFlip's image array. For non-current
             // indices this just updates the stored source so the next flip
@@ -458,7 +527,11 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
         showCover: false,
         mobileScrollSupport: false,
         autoSize: true,
-        usePortrait: true,
+        // Always one PDF page per viewport slot. Avoids "two landscape
+        // spreads squashed onto one screen" and sidesteps the
+        // mixed-aspect stretching problem uniform-size StPageFlip has
+        // when pages differ (portrait cover + landscape spreads).
+        forceSinglePage: true,
         useMouseEvents: mouseEvents,
         showEdge: true,
         preloadRange: 1,
@@ -586,7 +659,7 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
           if (pageNum > numPages) break;
           if (renderedPages.has(pageNum)) continue;
           try {
-            const data = await renderPageCached(pdf, pageNum, pdfUrl);
+            const data = await renderPageCached(pdf, pageNum, pdfUrl, pageWidth, pageHeight);
             renderedPages.set(pageNum, data.dataUrl);
             // If it's currently visible, paint it now
             const realIdx = currentPageMap.indexOf(pageNum);
@@ -896,7 +969,7 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
           const cached = renderedPages.get(pageNum);
           if (cached) { img.src = cached; return; }
           try {
-            const data = await renderPageCached(pdf, pageNum, pdfUrl);
+            const data = await renderPageCached(pdf, pageNum, pdfUrl, pageWidth, pageHeight);
             renderedPages.set(pageNum, data.dataUrl);
             img.src = data.dataUrl;
           } catch { /* non-fatal */ }
