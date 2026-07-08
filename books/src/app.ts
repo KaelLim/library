@@ -355,6 +355,16 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
     const pageWidth = Math.round(Math.max(...probeVps.map(v => v.width)));
     const pageHeight = Math.round(Math.max(...probeVps.map(v => v.height)));
 
+    // Auto-detect layout: if any probed page is landscape (aspect > 1.3)
+    // the PDF is either a scanned 2-in-1 book (each PDF page = one
+    // physical spread) or a landscape presentation. Either way a
+    // side-by-side spread pair on desktop would double-cram content →
+    // switch to single-page mode. All-portrait PDFs keep StPageFlip's
+    // default spread pair (usePortrait still auto-collapses on narrow
+    // viewports for mobile).
+    const SPREAD_ASPECT_THRESHOLD = 1.3;
+    const hasLandscape = probeVps.some(v => v.width / v.height > SPREAD_ASPECT_THRESHOLD);
+
     // Expose page aspect so thumbnail cells can reserve correct height
     // before any image has loaded.
     document.documentElement.style.setProperty(
@@ -527,11 +537,12 @@ async function init(pdfUrl: string = DEFAULT_PDF): Promise<void> {
         showCover: false,
         mobileScrollSupport: false,
         autoSize: true,
-        // Always one PDF page per viewport slot. Avoids "two landscape
-        // spreads squashed onto one screen" and sidesteps the
-        // mixed-aspect stretching problem uniform-size StPageFlip has
-        // when pages differ (portrait cover + landscape spreads).
-        forceSinglePage: true,
+        // Auto: any landscape page in first 5 → single-page mode
+        // (scanned 2-in-1 books, presentations, or mixed cover+spread).
+        // All-portrait PDFs stay in spread-pair mode. usePortrait still
+        // auto-collapses to portrait on narrow viewports either way.
+        usePortrait: true,
+        forceSinglePage: hasLandscape,
         useMouseEvents: mouseEvents,
         showEdge: true,
         preloadRange: 1,
