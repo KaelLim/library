@@ -1,32 +1,19 @@
-import { readFile } from 'fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import type { ParsedWeekly } from '../types/index.js';
 import { runSessionWithStreaming } from './session-streamer.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-async function loadSkill(skillName: string): Promise<string> {
-  const skillPath = join(__dirname, '../../../.claude/skills', `${skillName}.md`);
-  return readFile(skillPath, 'utf-8');
-}
+import { loadSkillSystemPrompt } from './skill-loader.js';
 
 export async function parseWeeklyMarkdown(
   markdown: string,
   weeklyId: number
 ): Promise<ParsedWeekly> {
-  const skill = await loadSkill('parse-weekly');
+  const systemPrompt = await loadSkillSystemPrompt('parse-weekly');
 
-  const prompt = `CRITICAL OUTPUT CONTRACT (read this first, follow it exactly):
+  const userPrompt = `CRITICAL OUTPUT CONTRACT (read this first, follow it exactly):
 - Your entire response MUST be a single valid JSON object.
 - The first character MUST be \`{\`. The last character MUST be \`}\`.
 - DO NOT write prose, commentary, headings, markdown, code fences, or any text outside the JSON.
 - DO NOT prefix with "Here is the JSON" or any explanation. Output the JSON directly.
 - All newlines inside string values MUST be escaped as \\n. All double quotes inside string values MUST be escaped as \\".
-
-${skill}
-
----
 
 請解析以下週報 markdown 檔案（weekly_id: ${weeklyId}），輸出結構化 JSON。
 
@@ -36,10 +23,11 @@ ${skill}
 
 ${markdown}`;
 
-  // 使用 session streaming，即時廣播進度
-  const resultText = await runSessionWithStreaming(prompt, {
+  const resultText = await runSessionWithStreaming(userPrompt, {
     weeklyId,
     model: 'opus',
+    systemPrompt,
+    logTag: 'parse-weekly',
   });
 
   if (!resultText) {
