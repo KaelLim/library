@@ -1,9 +1,5 @@
-import { readFile } from 'fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { runSessionWithStreaming } from './session-streamer.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { loadSkillSystemPrompt } from './skill-loader.js';
 
 const IMAGE_REGEX = /!\[[^\]]*\]\([^)]+\)/g;
 
@@ -36,24 +32,15 @@ interface RewrittenArticle {
   content: string;
 }
 
-async function loadSkill(skillName: string): Promise<string> {
-  const skillPath = join(__dirname, '../../../.claude/skills', `${skillName}.md`);
-  return readFile(skillPath, 'utf-8');
-}
-
 export async function rewriteForDigital(
   originalTitle: string,
   originalContent: string,
   weeklyId: number,
   categoryName: string
 ): Promise<RewrittenArticle> {
-  const skill = await loadSkill('rewrite-for-digital');
+  const systemPrompt = await loadSkillSystemPrompt('rewrite-for-digital');
 
-  const prompt = `${skill}
-
----
-
-請將以下週報原稿改寫為數位版內容。
+  const userPrompt = `請將以下週報原稿改寫為數位版內容。
 
 ## 分類
 ${categoryName}
@@ -75,17 +62,17 @@ ${originalTitle}
 ## 原稿內容
 ${originalContent}`;
 
-  // 使用 session streaming，即時廣播進度
-  const resultText = await runSessionWithStreaming(prompt, {
+  const resultText = await runSessionWithStreaming(userPrompt, {
     weeklyId,
     model: 'opus',
+    systemPrompt,
+    logTag: 'rewrite-for-digital',
   });
 
   if (!resultText) {
     throw new Error('No result from AI');
   }
 
-  // 提取 JSON
   let jsonStr = resultText;
   const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch) {
@@ -97,10 +84,7 @@ ${originalContent}`;
     if (!result.title || !result.content) {
       throw new Error('AI rewrite response missing required fields: title, content');
     }
-
-    // 程式化驗證：確保原稿所有圖片都保留在改寫內容中
     result.content = ensureImagesPreserved(originalContent, result.content);
-
     return result;
   } catch (e) {
     throw new Error(`Failed to parse AI rewrite response as JSON: ${e}`);
