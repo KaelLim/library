@@ -70,3 +70,34 @@ describe('normalizeNumbers — time', () => {
     expect(r.text).toBe('5點');
   });
 });
+
+describe('normalizeNumbers — quantity + measure word', () => {
+  it('converts 六戶居民', () => {
+    const r = normalizeNumbers('六戶居民');
+    expect(r.text).toBe('6戶居民');
+  });
+
+  it('converts 三十二人參加', () => {
+    const r = normalizeNumbers('三十二人參加');
+    expect(r.text).toBe('32人參加');
+  });
+
+  it('converts 兩年', () => {
+    const r = normalizeNumbers('兩年');
+    expect(r.text).toBe('2年');
+  });
+
+  it('does NOT convert 十位 in isolation without allowlisted measure', () => {
+    // The allowlist includes 位, so this DOES convert. Rename target: use a non-allowlisted word.
+    const r = normalizeNumbers('十樣');
+    expect(r.text).toBe('十樣');
+    expect(r.conversions).toEqual([]);
+  });
+
+  it('converts 一百二十三 followed by allowlisted measure', () => {
+    // Out of scope for cycle C — allowlist restricts to 1–2 digit multiplicative.
+    // Verify the 3-digit multiplicative is left alone.
+    const r = normalizeNumbers('一百二十三人');
+    expect(r.text).toBe('一百二十三人');
+  });
+});

@@ -45,6 +45,7 @@ function positionalToNumber(seq: string): number | null {
 function smallMultiplicative(seq: string): number | null {
   // Match forms: X, X十, 十, 十X, X十Y, 廿, 廿X, 卅, 卅X
   if (seq.length === 1) {
+    if (seq === '兩') return 2;
     return digit(seq) ?? CJK_TENS[seq] ?? null;
   }
   // Look for tens char in the sequence
@@ -81,6 +82,16 @@ const YEAR_REGEX = /[〇○零一二三四五六七八九]{4}年/g;
 const MONTH_DAY_REGEX = /(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|卅[一]?|[一二三四五六七八九])(月|日)/g;
 const HOUR_MINUTE_REGEX = /(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|[一二三四五六七八九])(時|點|分)/g;
 
+const MEASURE_WORD_GROUP = '(人|位|名|次|場|件|戶|所|間|棟|輛|台|支|隻|張|冊|本|篇|坪|公斤|公里|公尺|元|年|週年)';
+// (?<!第) — ordinals like 第一次, 第一年 stay Chinese per spec preservation rule.
+// Also exclude any preceding CJK numeral/hundred/thousand/ten-thousand char so a match can't
+// start mid-run inside a longer (3+ digit) multiplicative number like 一百二十三 — without this,
+// the 'g' flag would still find "二十三人" as a substring match starting right after "百".
+const QUANTITY_REGEX = new RegExp(
+  `(?<![第〇○零一二三四五六七八九十廿卅兩壹貳參肆伍陸柒捌玖百千萬])(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|卅[一二三四五六七八九]?|[一二三四五六七八九兩])${MEASURE_WORD_GROUP}`,
+  'g',
+);
+
 export function normalizeNumbers(input: string): NormalizeResult {
   const conversions: Conversion[] = [];
 
@@ -112,6 +123,15 @@ export function normalizeNumbers(input: string): NormalizeResult {
     if (unit === '分' && (n < 0 || n > 59)) return match;
     const replacement = `${n}${unit}`;
     conversions.push({ original: match, replacement, kind: 'time' });
+    return replacement;
+  });
+
+  text = text.replace(QUANTITY_REGEX, (match, unit) => {
+    const numPart = match.slice(0, -unit.length);
+    const n = smallMultiplicative(numPart);
+    if (n === null) return match;
+    const replacement = `${n}${unit}`;
+    conversions.push({ original: match, replacement, kind: 'quantity' });
     return replacement;
   });
 
