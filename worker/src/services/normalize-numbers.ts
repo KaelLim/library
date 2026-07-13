@@ -79,8 +79,17 @@ function smallMultiplicative(seq: string): number | null {
 }
 
 const YEAR_REGEX = /[〇○零一二三四五六七八九]{4}年/g;
-const MONTH_DAY_REGEX = /(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|卅[一]?|[一二三四五六七八九])(月|日)/g;
-const HOUR_MINUTE_REGEX = /(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|[一二三四五六七八九])(時|點|分)/g;
+// (?<![第〇○零一二三四五六七八九十廿卅兩壹貳參肆伍陸柒捌玖百千萬]) — same rationale as QUANTITY_REGEX below:
+// preserves ordinals like 第一日/第一月 and prevents mid-run matches inside longer multiplicative
+// numbers like 一百二十三日.
+const MONTH_DAY_REGEX = new RegExp(
+  '(?<![第〇○零一二三四五六七八九十廿卅兩壹貳參肆伍陸柒捌玖百千萬])(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|卅[一]?|[一二三四五六七八九])(月|日)',
+  'g',
+);
+const HOUR_MINUTE_REGEX = new RegExp(
+  '(?<![第〇○零一二三四五六七八九十廿卅兩壹貳參肆伍陸柒捌玖百千萬])(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|[一二三四五六七八九])(時|點|分)',
+  'g',
+);
 
 const MEASURE_WORD_GROUP = '(人|位|名|次|場|件|戶|所|間|棟|輛|台|支|隻|張|冊|本|篇|坪|公斤|公里|公尺|元|年|週年)';
 // (?<!第) — ordinals like 第一次, 第一年 stay Chinese per spec preservation rule.

@@ -87,7 +87,7 @@ describe('normalizeNumbers — quantity + measure word', () => {
     expect(r.text).toBe('2年');
   });
 
-  it('does NOT convert 十位 in isolation without allowlisted measure', () => {
+  it('does NOT convert 十樣 in isolation without allowlisted measure', () => {
     // The allowlist includes 位, so this DOES convert. Rename target: use a non-allowlisted word.
     const r = normalizeNumbers('十樣');
     expect(r.text).toBe('十樣');
@@ -150,6 +150,32 @@ describe('normalizeNumbers — combined real-world example', () => {
   it('handles empty input', () => {
     const r = normalizeNumbers('');
     expect(r.text).toBe('');
+    expect(r.conversions).toEqual([]);
+  });
+});
+
+describe('normalizeNumbers — regression: lookbehind on date/time', () => {
+  it('preserves 第一日 (ordinal date)', () => {
+    const r = normalizeNumbers('第一日的行程');
+    expect(r.text).toBe('第一日的行程');
+    expect(r.conversions).toEqual([]);
+  });
+
+  it('preserves 第一月 (ordinal date)', () => {
+    const r = normalizeNumbers('第一月的活動');
+    expect(r.text).toBe('第一月的活動');
+    expect(r.conversions).toEqual([]);
+  });
+
+  it('preserves 第一時 (ordinal time)', () => {
+    const r = normalizeNumbers('第一時的紀錄');
+    expect(r.text).toBe('第一時的紀錄');
+    expect(r.conversions).toEqual([]);
+  });
+
+  it('does not mid-match 一百二十三日', () => {
+    const r = normalizeNumbers('一百二十三日的統計');
+    expect(r.text).toBe('一百二十三日的統計');
     expect(r.conversions).toEqual([]);
   });
 });
