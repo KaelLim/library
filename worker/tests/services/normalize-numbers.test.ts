@@ -101,3 +101,55 @@ describe('normalizeNumbers — quantity + measure word', () => {
     expect(r.text).toBe('一百二十三人');
   });
 });
+
+describe('normalizeNumbers — preservation', () => {
+  it('preserves 第一版 (category version title)', () => {
+    const r = normalizeNumbers('第一版：全球焦點');
+    expect(r.text).toBe('第一版：全球焦點');
+    expect(r.conversions).toEqual([]);
+  });
+
+  it('preserves 第一次 (ordinal prefix — negative lookbehind)', () => {
+    const r = normalizeNumbers('第一次見面');
+    expect(r.text).toBe('第一次見面');
+    expect(r.conversions).toEqual([]);
+  });
+
+  it('preserves 一心一意 (idiom, no measure word after 一)', () => {
+    const r = normalizeNumbers('一心一意');
+    expect(r.text).toBe('一心一意');
+  });
+
+  it('preserves image markdown containing digits', () => {
+    const r = normalizeNumbers('![alt](/images/1-2-3)');
+    expect(r.text).toBe('![alt](/images/1-2-3)');
+  });
+});
+
+describe('normalizeNumbers — idempotence', () => {
+  it('running normalize twice yields same result', () => {
+    const input = '二〇二五年一月廿一日清晨，慈濟援助六戶居民';
+    const once = normalizeNumbers(input);
+    const twice = normalizeNumbers(once.text);
+    expect(twice.text).toBe(once.text);
+    expect(twice.conversions).toEqual([]);
+  });
+});
+
+describe('normalizeNumbers — combined real-world example', () => {
+  it('converts a mixed prose block', () => {
+    const input = '二〇二五年一月廿一日清晨，強震重創嘉南山區，慈濟援助六戶居民';
+    const r = normalizeNumbers(input);
+    expect(r.text).toBe('2025年1月21日清晨，強震重創嘉南山區，慈濟援助6戶居民');
+    expect(r.conversions.length).toBeGreaterThanOrEqual(3);
+    const kinds = r.conversions.map(c => c.kind).sort();
+    // Year, month as date, day as date, quantity
+    expect(kinds).toEqual(['date', 'date', 'quantity', 'year']);
+  });
+
+  it('handles empty input', () => {
+    const r = normalizeNumbers('');
+    expect(r.text).toBe('');
+    expect(r.conversions).toEqual([]);
+  });
+});
