@@ -26,6 +26,8 @@ export interface SessionStreamOptions {
   allowedTools?: string[];
   maxTurns?: number; // Claude 最多來回幾次，預設 1
   chunkSize?: number; // 每多少字元廣播一次，預設 100
+  systemPrompt?: string; // NEW — custom system prompt (skill body)
+  logTag?: string; // NEW — e.g. 'parse-weekly'; prefixed to console logs
 }
 
 export interface SessionMessage {
@@ -42,7 +44,8 @@ const channelCache = new Map<number, RealtimeChannel>();
 /**
  * 取得或建立指定 weeklyId 的 channel
  */
-async function getOrCreateChannel(weeklyId: number): Promise<RealtimeChannel> {
+async function getOrCreateChannel(weeklyId: number, logTag?: string): Promise<RealtimeChannel> {
+  const logPrefix = logTag ? `[Query:${logTag}]` : '[Query]';
   const existing = channelCache.get(weeklyId);
   if (existing) {
     return existing;
@@ -52,18 +55,18 @@ async function getOrCreateChannel(weeklyId: number): Promise<RealtimeChannel> {
 
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(() => {
-      console.log(`[Query] Channel subscribe timeout for weekly ${weeklyId}, proceeding with REST fallback`);
+      console.log(`${logPrefix} Channel subscribe timeout for weekly ${weeklyId}, proceeding with REST fallback`);
       resolve();
     }, 5000);
 
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         clearTimeout(timeout);
-        console.log(`[Query] Channel subscribed for weekly ${weeklyId}`);
+        console.log(`${logPrefix} Channel subscribed for weekly ${weeklyId}`);
         resolve();
       } else if (status === 'CHANNEL_ERROR') {
         clearTimeout(timeout);
-        console.log(`[Query] Channel error for weekly ${weeklyId}, proceeding with REST fallback`);
+        console.log(`${logPrefix} Channel error for weekly ${weeklyId}, proceeding with REST fallback`);
         resolve();
       }
     });
@@ -76,7 +79,8 @@ async function getOrCreateChannel(weeklyId: number): Promise<RealtimeChannel> {
 /**
  * 清除指定 weeklyId 的 channel（匯入完成後呼叫）
  */
-export async function cleanupChannel(weeklyId: number): Promise<void> {
+export async function cleanupChannel(weeklyId: number, logTag?: string): Promise<void> {
+  const logPrefix = logTag ? `[Query:${logTag}]` : '[Query]';
   const channel = channelCache.get(weeklyId);
   if (channel) {
     try {
@@ -84,10 +88,10 @@ export async function cleanupChannel(weeklyId: number): Promise<void> {
     } catch (err) {
       // @supabase/realtime-js 的 phoenix socket adapter 在某些狀況會丟
       // `connToClose.close is not a function`，吞掉避免整個 worker crash
-      console.error(`[Query] removeChannel error (ignored):`, err);
+      console.error(`${logPrefix} removeChannel error (ignored):`, err);
     }
     channelCache.delete(weeklyId);
-    console.log(`[Query] Channel cleaned up for weekly ${weeklyId}`);
+    console.log(`${logPrefix} Channel cleaned up for weekly ${weeklyId}`);
   }
 }
 
@@ -105,10 +109,13 @@ export async function runSessionWithStreaming(
     allowedTools = [],
     maxTurns = 1,
     chunkSize = 100,
+    systemPrompt,
+    logTag,
   } = options;
+  const logPrefix = logTag ? `[Query:${logTag}]` : '[Query]';
 
   // 取得或建立 channel（使用快取避免重複建立）
-  const channel = await getOrCreateChannel(weeklyId);
+  const channel = await getOrCreateChannel(weeklyId, logTag);
 
   // 廣播函數
   const broadcast = async (data: SessionMessage) => {
@@ -122,7 +129,7 @@ export async function runSessionWithStreaming(
         },
       });
     } catch (err) {
-      console.error('[Query] Broadcast error:', err);
+      console.error(`${logPrefix} Broadcast error:`, err);
     }
   };
 
@@ -145,7 +152,7 @@ export async function runSessionWithStreaming(
   let lastActivityTime = Date.now();
 
   try {
-    console.log('[Query] Starting with prompt length:', prompt.length);
+    console.log(`${logPrefix} Starting with prompt length:`, prompt.length);
     updateAiActivity();
 
     // 廣播開始
@@ -163,6 +170,7 @@ export async function runSessionWithStreaming(
         allowedTools,
         maxTurns,
         includePartialMessages: true, // 關鍵！啟用 token-level streaming
+        ...(systemPrompt ? { systemPrompt } : {}),
       },
     })) {
       // Check idle timeout (no activity for 2 minutes)
@@ -210,13 +218,13 @@ export async function runSessionWithStreaming(
         }
 
         const resultMsg = message as QueryResult;
-        console.log('[Query] Result subtype:', resultMsg.subtype);
-        console.log('[Query] Stream events:', streamEventCount);
+        console.log(`${logPrefix} Result subtype:`, resultMsg.subtype);
+        console.log(`${logPrefix} Stream events:`, streamEventCount);
 
         if (resultMsg.subtype === 'success') {
           result = resultMsg.result || fullText;
           console.log(
-            '[Query] Success, result length:',
+            `${logPrefix} Success, result length:`,
             result?.length || 0,
             resultMsg.result ? '(from result)' : '(fallback to streamed text)'
           );
@@ -226,9 +234,9 @@ export async function runSessionWithStreaming(
       }
     }
 
-    console.log('[Query] Completed');
+    console.log(`${logPrefix} Completed`);
   } catch (error) {
-    console.error('[Query] Error:', error);
+    console.error(`${logPrefix} Error:`, error);
     throw error;
   } finally {
     // 廣播結束（不在這裡清理 channel，由 cleanupChannel() 統一處理）
