@@ -96,36 +96,28 @@ export async function generateDescription(
   content: string,
   categoryName: string
 ): Promise<string> {
-  const prompt = `你是一個專業的文章摘要生成器。請為以下慈濟週報文章生成一段 50-100 字的中文摘要。
+  const systemPrompt = await loadSkillSystemPrompt('generate-description');
 
-## 要求
-- 長度：50-100 字（中文）
-- 內容：概括文章核心訊息，回答「這篇文章在講什麼」
-- 用途：SEO meta description、社群分享卡片、文章列表預覽
-- 風格：完整句子，吸引點擊但不標題黨
-- 保持慈濟溫暖人文的語調
-
-## 分類
+  const userPrompt = `## 分類
 ${categoryName}
 
 ## 文章標題
 ${title}
 
 ## 文章內容
-${content.substring(0, 2000)}
+${content.substring(0, 2000)}`;
 
-請直接輸出摘要文字，不要有任何前綴或說明。`;
-
-  const resultText = await runSessionWithStreaming(prompt, {
+  const resultText = await runSessionWithStreaming(userPrompt, {
     weeklyId: 0,
     model: 'opus',
+    systemPrompt,
+    logTag: 'generate-description',
   });
 
   if (!resultText) {
     throw new Error('No result from AI');
   }
 
-  // 清理可能的引號或多餘空白
   return resultText.trim().replace(/^["']|["']$/g, '');
 }
 
