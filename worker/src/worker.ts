@@ -6,6 +6,7 @@ import { extractFolderId, listImagesRecursive } from './services/google-drive.js
 import { getServiceAccessToken, isServiceAccountConfigured } from './services/google-drive-auth.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
+import { normalizeNumbers } from './services/normalize-numbers.js';
 import { cleanupChannel } from './services/session-streamer.js';
 import { generateArticleAudio } from './services/tts.js';
 import {
@@ -252,16 +253,24 @@ export async function runImportWorker(
       for (const article of category.articles) {
         const rewritten = await rewriteForDigital(article.title, article.content, weeklyId, category.name);
 
+        const t = normalizeNumbers(rewritten.title);
+        const d = normalizeNumbers(rewritten.description);
+        const c = normalizeNumbers(rewritten.content);
+        const totalConv = t.conversions.length + d.conversions.length + c.conversions.length;
+        if (totalConv > 0) {
+          console.log(`[normalize-numbers] "${rewritten.title.slice(0, 40)}": ${totalConv} conversions`);
+        }
+
         const inserted = await insertArticle({
           weekly_id: weeklyId,
           category_id: category.category_id,
           platform: 'digital',
-          title: rewritten.title,
-          description: rewritten.description,
-          content: rewritten.content,
+          title: t.text,
+          description: d.text,
+          content: c.text,
         });
 
-        digitalArticles.push({ id: inserted.id, content: rewritten.content });
+        digitalArticles.push({ id: inserted.id, content: c.text });
 
         await writeAuditLog({
           user_email: userEmail || null,
@@ -275,6 +284,7 @@ export async function runImportWorker(
             platform: 'digital',
             model: 'opus',
             source_title: article.title,
+            number_conversions: totalConv,
           },
         });
 
