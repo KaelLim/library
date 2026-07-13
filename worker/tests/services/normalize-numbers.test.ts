@@ -42,3 +42,31 @@ describe('normalizeNumbers — date (month/day)', () => {
     expect(r.text).toBe('10日');
   });
 });
+
+describe('normalizeNumbers — time', () => {
+  it('converts 三時 (hour)', () => {
+    const r = normalizeNumbers('下午三時');
+    expect(r.text).toBe('下午3時');
+  });
+
+  it('converts 二十四時', () => {
+    const r = normalizeNumbers('二十四時');
+    expect(r.text).toBe('24時');
+  });
+
+  it('skips out-of-range 二十五時', () => {
+    const r = normalizeNumbers('二十五時');
+    expect(r.text).toBe('二十五時');
+    expect(r.conversions).toEqual([]);
+  });
+
+  it('converts 三十分', () => {
+    const r = normalizeNumbers('三十分');
+    expect(r.text).toBe('30分');
+  });
+
+  it('converts 五點', () => {
+    const r = normalizeNumbers('五點');
+    expect(r.text).toBe('5點');
+  });
+});

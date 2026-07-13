@@ -79,6 +79,7 @@ function smallMultiplicative(seq: string): number | null {
 
 const YEAR_REGEX = /[〇○零一二三四五六七八九]{4}年/g;
 const MONTH_DAY_REGEX = /(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|卅[一]?|[一二三四五六七八九])(月|日)/g;
+const HOUR_MINUTE_REGEX = /(?:[一二三四五六七八九]?十[一二三四五六七八九]?|廿[一二三四五六七八九]?|[一二三四五六七八九])(時|點|分)/g;
 
 export function normalizeNumbers(input: string): NormalizeResult {
   const conversions: Conversion[] = [];
@@ -98,6 +99,19 @@ export function normalizeNumbers(input: string): NormalizeResult {
     if (n === null) return match;
     const replacement = `${n}${unit}`;
     conversions.push({ original: match, replacement, kind: 'date' });
+    return replacement;
+  });
+
+  text = text.replace(HOUR_MINUTE_REGEX, (match, unit) => {
+    const numPart = match.slice(0, -1);
+    const n = smallMultiplicative(numPart);
+    if (n === null) return match;
+    // range check
+    const isHour = unit === '時' || unit === '點';
+    if (isHour && (n < 0 || n > 24)) return match;
+    if (unit === '分' && (n < 0 || n > 59)) return match;
+    const replacement = `${n}${unit}`;
+    conversions.push({ original: match, replacement, kind: 'time' });
     return replacement;
   });
 
