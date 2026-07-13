@@ -33,4 +33,10 @@ describe('loadSkillSystemPrompt', () => {
   it('throws for missing skill with skill name in message', async () => {
     await expect(loadSkillSystemPrompt('does-not-exist')).rejects.toThrow(/does-not-exist/);
   });
+
+  it('loads generate-description skill', async () => {
+    const body = await loadSkillSystemPrompt('generate-description');
+    expect(body).toContain('產生文章摘要');
+    expect(body).toContain('50-100 字');
+  });
 });
