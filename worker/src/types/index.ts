@@ -121,6 +121,7 @@ export type BookInsert = Omit<Book, 'id' | 'created_at' | 'updated_at' | 'hits'>
 export type ImportStep =
   | 'starting'
   | 'exporting_docs'
+  | 'validating_images'
   | 'converting_images'
   | 'replacing_images'
   | 'uploading_original'

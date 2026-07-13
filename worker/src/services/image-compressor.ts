@@ -12,7 +12,10 @@ export async function compressImage(
   originalMimeType: string
 ): Promise<{ buffer: Buffer; mimeType: string; extension: string }> {
   try {
-    const image = sharp(buffer);
+    // .rotate() with no args reads EXIF orientation, applies rotation to
+    // pixels, and strips the tag. Must precede metadata() so width/height
+    // reflect visual dims.
+    const image = sharp(buffer).rotate();
     const metadata = await image.metadata();
 
     let pipeline = image;

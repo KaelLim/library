@@ -4,17 +4,16 @@ import { requireAuth } from '../middleware/auth.js';
 import {
   getWeekly,
   setWeeklyDriveFolderUrl,
-  downloadMarkdown,
   insertAuditLog,
   broadcastImageReplaceProgress,
 } from '../services/supabase.js';
-import { extractFolderId } from '../services/google-drive.js';
+import { extractFolderId, listImagesRecursive, type DriveFile } from '../services/google-drive.js';
 import {
   getServiceAccessToken,
   isServiceAccountConfigured,
 } from '../services/google-drive-auth.js';
-import { matchAndReplacePerCategory } from '../services/image-matcher.js';
-import { parseWeeklyMarkdown } from '../services/ai-parser.js';
+import { replaceWithDriveHighRes } from '../services/image-matcher.js';
+import { parseDrivePrefix, tripleKey } from '../services/image-code.js';
 
 const FOLDER_URL_RE = /\/folders\/([a-zA-Z0-9_-]+)/;
 
@@ -103,34 +102,59 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
             return;
           }
 
-          // 從 storage 抓回原始 markdown 作為比對依據
-          const originalMd = await downloadMarkdown(weeklyId, 'original.md');
-          if (!originalMd) {
+          await broadcastImageReplaceProgress(taskId, {
+            step: 'matching',
+            progress: '列出 Drive 圖片並解析編號...',
+          });
+
+          // Standalone re-replace: no doc-count check (allow partial replace,
+          // e.g. editor updated only a few images in Drive). Still validate:
+          // every file must parse to x-x-x, no duplicates.
+          const driveFiles = await listImagesRecursive(driveToken, driveFolderId);
+          const xxxToDriveFile = new Map<string, DriveFile>();
+          const unparseable: string[] = [];
+          const duplicates: { xxx: string; files: string[] }[] = [];
+          const seenAt = new Map<string, string[]>();
+          for (const file of driveFiles) {
+            const prefix = parseDrivePrefix(file.name);
+            if (!prefix) {
+              unparseable.push(file.name);
+              continue;
+            }
+            const xxx = tripleKey(prefix);
+            const list = seenAt.get(xxx);
+            if (list) {
+              list.push(file.name);
+            } else {
+              seenAt.set(xxx, [file.name]);
+              xxxToDriveFile.set(xxx, file);
+            }
+          }
+          for (const [xxx, files] of seenAt) {
+            if (files.length > 1) duplicates.push({ xxx, files });
+          }
+          if (unparseable.length > 0) {
             await broadcastImageReplaceProgress(taskId, {
               step: 'failed',
-              error: '找不到 original.md，此週報可能未經 import 流程匯入',
+              error: `Drive 資料夾內有無法解析編號的檔案：${unparseable.join(', ')}`,
+            });
+            return;
+          }
+          if (duplicates.length > 0) {
+            const summary = duplicates
+              .map((d) => `x-x-x=${d.xxx}（${d.files.join(', ')}）`)
+              .join('；');
+            await broadcastImageReplaceProgress(taskId, {
+              step: 'failed',
+              error: `Drive 資料夾內同一個編號出現多次：${summary}`,
             });
             return;
           }
 
-          await broadcastImageReplaceProgress(taskId, {
-            step: 'matching',
-            progress: 'AI 解析週報結構...',
-          });
-
-          // per-category 比對需要 ParsedWeekly 拿到 image→category 對應
-          const parsed = await parseWeeklyMarkdown(originalMd, weeklyId);
-
-          await broadcastImageReplaceProgress(taskId, {
-            step: 'matching',
-            progress: 'AI 圖片比對中...',
-          });
-
-          const outcome = await matchAndReplacePerCategory({
+          const outcome = await replaceWithDriveHighRes({
             weeklyId,
-            parsed,
+            xxxToDriveFile,
             providerToken: driveToken,
-            driveFolderId,
             onProgress: async (msg) => {
               await broadcastImageReplaceProgress(taskId, {
                 step: 'replacing',
@@ -150,23 +174,15 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
               weekly_id: weeklyId,
               step: 'replace_images',
               drive_folder_url: driveFolderUrl,
-              strategy: outcome.strategy,
-              total_replaced: outcome.totalReplaced,
-              prefix_matched: outcome.prefixMatched,
-              vision_matched: outcome.visionMatched,
-              unparseable_matched: outcome.unparseableMatched,
+              total_replaced: outcome.replaced,
               drive_total: outcome.driveTotal,
-              low_res_total: outcome.lowResTotal,
-              orphan_low_after: outcome.orphanLowAfter,
-              unparseable_high_res: outcome.unparseableHighRes,
-              conflict_triples: outcome.conflictTriples,
             },
           });
 
           await broadcastImageReplaceProgress(taskId, {
             step: 'completed',
-            progress: `完成，共替換 ${outcome.totalReplaced} 張圖片`,
-            replaced: outcome.totalReplaced,
+            progress: `完成，共替換 ${outcome.replaced} 張圖片`,
+            replaced: outcome.replaced,
           });
         } catch (error) {
           request.log.error({ err: error }, '[replace-images] Failed');

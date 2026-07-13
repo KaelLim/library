@@ -3,6 +3,7 @@
 export type ImportStep =
   | 'starting'
   | 'exporting_docs'
+  | 'validating_images'
   | 'converting_images'
   | 'replacing_images'
   | 'uploading_original'
@@ -49,8 +50,9 @@ export interface StepInfo {
 export const IMPORT_STEPS: StepInfo[] = [
   { key: 'starting', label: '初始化', description: '準備匯入環境' },
   { key: 'exporting_docs', label: '下載文件', description: '從 Google Docs 下載 markdown' },
+  { key: 'validating_images', label: '驗證圖片編號', description: '比對 Docs 圖片數量與 Drive 檔案編號' },
   { key: 'converting_images', label: '處理圖片', description: '提取並上傳圖片' },
-  { key: 'replacing_images', label: '替換高解析度', description: 'AI 比對並替換高解析度圖片' },
+  { key: 'replacing_images', label: '替換高解析度', description: '下載並替換 Drive 高解析度圖片' },
   { key: 'uploading_original', label: '上傳原稿', description: '儲存原始 markdown' },
   { key: 'ai_parsing', label: 'AI 解析', description: '解析 markdown 為結構化資料' },
   { key: 'uploading_clean', label: '上傳整理', description: '儲存整理後的 markdown' },

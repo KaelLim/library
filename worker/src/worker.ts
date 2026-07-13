@@ -1,7 +1,8 @@
 import { loadMarkdownFromFile, extractWeeklyId, downloadMarkdownFromGoogleDocs } from './services/google-docs.js';
 import { processAllImages } from './services/image-processor.js';
-import { matchAndReplacePerCategory } from './services/image-matcher.js';
-import { extractFolderId } from './services/google-drive.js';
+import { replaceWithDriveHighRes } from './services/image-matcher.js';
+import { validateDocImagesAgainstDrive, ImageValidationError } from './services/image-code.js';
+import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
 import { getServiceAccessToken, isServiceAccountConfigured } from './services/google-drive-auth.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
@@ -103,89 +104,111 @@ export async function runImportWorker(
       metadata: { weekly_id: weeklyId, source, step: 'started' },
     });
 
-    // 2. 處理 base64 圖片
-    await updateProgress('converting_images', '轉換圖片中...');
-    const markdownWithUrls = await processAllImages(rawMarkdown, weeklyId);
+    // 2. Drive 認證 + 驗證圖片編號
+    if (!options.driveFolderUrl) {
+      throw new Error('必須提供 driveFolderUrl（x-x-x 圖片對應必要）');
+    }
+    const driveFolderId = extractFolderId(options.driveFolderUrl);
+    if (!driveFolderId) {
+      throw new Error(`無效的 Drive 資料夾 URL：${options.driveFolderUrl}`);
+    }
 
-    // 3. 上傳 original.md
+    let driveToken: string | null = null;
+    let driveTokenSource = '';
+    try {
+      if (isServiceAccountConfigured()) {
+        driveToken = await getServiceAccessToken();
+        driveTokenSource = 'service_account';
+      }
+    } catch (err) {
+      console.warn('[validating_images] Service account token failed, fallback to user token:', err);
+    }
+    if (!driveToken && options.providerToken) {
+      driveToken = options.providerToken;
+      driveTokenSource = 'user_oauth';
+    }
+    if (!driveToken) {
+      throw new Error('無 Drive 認證，無法列出 x-x-x 檔案');
+    }
+    console.log(`[validating_images] Using ${driveTokenSource} for Drive auth`);
+
+    await updateProgress('validating_images', '列出 Drive 圖片並驗證編號...');
+    const driveFiles = await listImagesRecursive(driveToken, driveFolderId);
+
+    let validation;
+    try {
+      validation = validateDocImagesAgainstDrive(rawMarkdown, driveFiles);
+    } catch (err) {
+      if (err instanceof ImageValidationError) {
+        await writeAuditLog({
+          user_email: userEmail || null,
+          action: 'import',
+          table_name: null,
+          record_id: null,
+          old_data: null,
+          new_data: null,
+          metadata: {
+            weekly_id: weeklyId,
+            step: 'validation_failed',
+            ...err.details,
+          },
+        });
+        await updateProgress('failed', undefined, err.message);
+        return;
+      }
+      throw err;
+    }
+    const { xxxCodes, xxxToDriveFile } = validation;
+    console.log(`[validating_images] OK — ${xxxCodes.length} 張圖片對應完成`);
+
+    // 3. 處理 base64 圖片（以 x-x-x 命名）
+    await updateProgress('converting_images', `轉換 ${xxxCodes.length} 張圖片...`);
+    const markdownWithUrls = await processAllImages(rawMarkdown, weeklyId, xxxCodes);
+
+    // 4. 下載 Drive 高解、以同名覆蓋 Supabase
+    await updateProgress('replacing_images', `下載並替換 ${xxxCodes.length} 張高解析度圖片...`);
+    try {
+      const outcome = await replaceWithDriveHighRes({
+        weeklyId,
+        xxxToDriveFile,
+        providerToken: driveToken,
+        onProgress: async (msg) => updateProgress('replacing_images', msg),
+      });
+      console.log(
+        `[replacing_images] replaced=${outcome.replaced}/${outcome.driveTotal}`,
+      );
+      await writeAuditLog({
+        user_email: userEmail || null,
+        action: 'image_match',
+        table_name: null,
+        record_id: null,
+        old_data: null,
+        new_data: null,
+        metadata: {
+          weekly_id: weeklyId,
+          total_replaced: outcome.replaced,
+          drive_total: outcome.driveTotal,
+        },
+      });
+    } catch (err) {
+      console.error('[replacing_images] Error:', err);
+      await updateProgress('replacing_images', '高解替換失敗，保留低解析度繼續匯入...');
+    }
+
+    // 5. 上傳 original.md
     await updateProgress('uploading_original', '上傳原始檔案...');
     await uploadMarkdown(weeklyId, 'original.md', markdownWithUrls);
 
-    // 4. AI 解析
+    // 6. AI 解析
     await updateProgress('ai_parsing', 'AI 解析中...');
     const parsed: ParsedWeekly = await parseWeeklyMarkdown(markdownWithUrls, weeklyId);
 
-    // 4.5 替換高解析度圖片（per-category）
-    if (options.driveFolderUrl) {
-      const driveFolderId = extractFolderId(options.driveFolderUrl);
-      if (driveFolderId) {
-        await updateProgress('replacing_images', '準備替換高解析度圖片...');
-
-        let driveToken: string | null = null;
-        let driveTokenSource = '';
-        try {
-          if (isServiceAccountConfigured()) {
-            driveToken = await getServiceAccessToken();
-            driveTokenSource = 'service_account';
-          }
-        } catch (err) {
-          console.warn('[replacing_images] Service account token failed, fallback to user token:', err);
-        }
-        if (!driveToken && options.providerToken) {
-          driveToken = options.providerToken;
-          driveTokenSource = 'user_oauth';
-        }
-
-        if (!driveToken) {
-          await updateProgress('replacing_images', '無 Drive 認證，跳過替換');
-        } else {
-          console.log(`[replacing_images] Using ${driveTokenSource} for Drive auth`);
-          try {
-            const outcome = await matchAndReplacePerCategory({
-              weeklyId,
-              parsed,
-              providerToken: driveToken,
-              driveFolderId,
-              onProgress: async (msg) => updateProgress('replacing_images', msg),
-            });
-            console.log(
-              `[replacing_images] strategy=${outcome.strategy}, replaced=${outcome.totalReplaced}, prefix=${outcome.prefixMatched}, vision=${outcome.visionMatched}`,
-            );
-            await writeAuditLog({
-              user_email: userEmail || null,
-              action: 'image_match',
-              table_name: null,
-              record_id: null,
-              old_data: null,
-              new_data: null,
-              metadata: {
-                weekly_id: weeklyId,
-                strategy: outcome.strategy,
-                total_replaced: outcome.totalReplaced,
-                prefix_matched: outcome.prefixMatched,
-                vision_matched: outcome.visionMatched,
-                unparseable_matched: outcome.unparseableMatched,
-                drive_total: outcome.driveTotal,
-                low_res_total: outcome.lowResTotal,
-                orphan_low_after: outcome.orphanLowAfter,
-                unparseable_high_res: outcome.unparseableHighRes,
-                conflict_triples: outcome.conflictTriples,
-              },
-            });
-          } catch (err) {
-            console.error('[replacing_images] Error:', err);
-            await updateProgress('replacing_images', '圖片替換失敗，繼續匯入...');
-          }
-        }
-      }
-    }
-
-    // 5. 生成並上傳 clean.md
+    // 7. 生成並上傳 clean.md
     await updateProgress('uploading_clean', '上傳整理後檔案...');
     const cleanMarkdown = await generateCleanMarkdown(markdownWithUrls, parsed);
     await uploadMarkdown(weeklyId, 'clean.md', cleanMarkdown);
 
-    // 6. 匯入 docs 版文稿（含 AI 生成 description）
+    // 8. 匯入 docs 版文稿（含 AI 生成 description）
     const totalArticles = parsed.categories.reduce((sum, cat) => sum + cat.articles.length, 0);
     let importedCount = 0;
 
@@ -220,7 +243,7 @@ export async function runImportWorker(
       }
     }
 
-    // 7. AI 改寫為 digital 版
+    // 9. AI 改寫為 digital 版
     let rewrittenCount = 0;
     const digitalArticles: { id: number; content: string }[] = [];
     await updateProgress('ai_rewriting', `AI 改寫中... 0/${totalArticles}`);
@@ -260,7 +283,7 @@ export async function runImportWorker(
       }
     }
 
-    // 8. 生成語音和字幕
+    // 10. 生成語音和字幕
     let audioCount = 0;
     await updateProgress('generating_audio', `語音生成中... 0/${digitalArticles.length}`);
 
