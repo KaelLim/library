@@ -92,6 +92,46 @@ services:
           fault_tolerant: true
           limit_by: ip
 
+  ## EDM 專用：Kong 記憶體 5 分鐘 cache
+  ## 電子報一波 2000+ 次都打同一個 RPC，靠 cache 避免打爆 Postgres pool
+  ## Kong 選最長 path match，所以此 route 會勝過下面的 /rest/v1/
+  - name: rest-v1-edm
+    _comment: 'EDM RPC cached 5 min in Kong memory'
+    url: http://rest:3000/
+    routes:
+      - name: rest-v1-edm-rpc
+        strip_path: true
+        methods:
+          - GET
+          - POST
+        paths:
+          - /rest/v1/rpc/get_latest_weekly_for_edm
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+      - name: proxy-cache
+        config:
+          strategy: memory
+          cache_ttl: 300
+          content_type:
+            - application/json
+            - application/json; charset=utf-8
+          response_code:
+            - 200
+          request_method:
+            - GET
+            - HEAD
+            - POST
+          cache_control: false
+
   ## Secure REST routes
   - name: rest-v1
     _comment: 'PostgREST: /rest/v1/* -> http://rest:3000/*'
