@@ -97,7 +97,10 @@ services:
   ## Kong 選最長 path match，所以此 route 會勝過下面的 /rest/v1/
   - name: rest-v1-edm
     _comment: 'EDM RPC cached 5 min in Kong memory'
-    url: http://rest:3000/
+    # url 直接指向目標 RPC；strip_path 把整條 /rest/v1/rpc/get_latest_weekly_for_edm 吃掉後，
+    # upstream 就是 http://rest:3000/rpc/get_latest_weekly_for_edm（正確路徑），
+    # 不能寫 http://rest:3000/，否則會打到 PostgREST 根目錄拿 OpenAPI schema。
+    url: http://rest:3000/rpc/get_latest_weekly_for_edm
     routes:
       - name: rest-v1-edm-rpc
         strip_path: true
