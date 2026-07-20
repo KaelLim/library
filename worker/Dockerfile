@@ -30,6 +30,8 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 COPY assets ./assets
+# SKILL.md files loaded at runtime by src/services/skill-loader.ts
+COPY .claude ./.claude
 
 # Build TypeScript
 RUN npm run build

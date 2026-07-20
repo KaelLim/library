@@ -3,7 +3,9 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SKILLS_ROOT = join(__dirname, '../../../.claude/skills');
+// dev: worker/src/services -> worker/.claude/skills
+// prod: /app/dist/services -> /app/.claude/skills
+const SKILLS_ROOT = join(__dirname, '../../.claude/skills');
 
 const FRONTMATTER_REGEX = /^---\n[\s\S]*?\n---\n\s*/;
 
