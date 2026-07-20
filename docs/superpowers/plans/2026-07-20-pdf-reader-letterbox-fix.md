@@ -25,7 +25,9 @@
 | 檔案 | 責任 | 動作 |
 |---|---|---|
 | `books/tools/make-mixed-fixture.py` | 產生混合寬高比測試 PDF；自我驗證產出的頁面尺寸 | 建立 |
-| `books/tests/fixtures/mixed-aspect.pdf` | 測試素材，6 頁 `L,P,P,L,P,P` A4，供瀏覽器目視驗證 | 建立（由上者產生） |
+| `books/tests/fixtures/mixed-aspect.pdf` | 測試素材，6 頁 `L,P,P,L,P,P` A4，供瀏覽器目視驗證（單頁模式） | 建立（由上者產生） |
+| `books/tests/fixtures/mixed-portrait.pdf` | 測試素材，6 頁全直式混合尺寸（A4 + Letter），維持對開模式，供驗證書口接縫 | 建立（由上者產生） |
+| `books/app.js`、`books/app.js.map` | Rollup 產物，**已納入版控且為正式環境實際載入的檔案** | 隨 `src/app.ts` 一起 commit |
 | `books/src/app.ts` | PDF 渲染與 viewer 主邏輯 | 修改 `:128-135` docstring、刪除 `:168-169` |
 
 僅兩個任務。Task 1 產出可重現的測試素材（目前本地無混合寬高比 PDF，無法重現缺陷）；Task 2 施作修改並用 Task 1 的素材驗證。
@@ -50,7 +52,7 @@
 
 每頁填滿飽和色並加白色內框，讓白邊在深藍背景上一眼可辨（若頁面本身接近白色，白邊會混在一起看不出來）。
 
-- [ ] **Step 1: 確認 PyMuPDF 可用**
+- [x] **Step 1: 確認 PyMuPDF 可用**
 
 Run:
 ```bash
@@ -61,7 +63,7 @@ Expected: 輸出含 `PyMuPDF 1.27.2.2`。
 
 若失敗，安裝：`python3 -m pip install --user PyMuPDF`。注意 `reportlab`、`pypdf`、`PyPDF2` 在此環境**不可用**，`qpdf`、`mutool` 也不在 PATH 上，所以不要改用它們。
 
-- [ ] **Step 2: 建立產生器腳本**
+- [x] **Step 2: 建立產生器腳本**
 
 建立 `books/tools/make-mixed-fixture.py`：
 
@@ -152,7 +154,7 @@ if __name__ == "__main__":
     verify(OUT)
 ```
 
-- [ ] **Step 3: 執行腳本產生素材**
+- [x] **Step 3: 執行腳本產生素材**
 
 Run:
 ```bash
@@ -167,7 +169,7 @@ Expected：兩行輸出，形如
 
 `verify()` 中的 assertion 就是本任務的測試：它確認產出的頁面方向與預期一致，且獨立 `max()` 確實會產生接近正方形的目標（否則素材無法重現缺陷）。
 
-- [ ] **Step 4: 用獨立工具交叉確認頁面尺寸**
+- [x] **Step 4: 用獨立工具交叉確認頁面尺寸**
 
 Run:
 ```bash
@@ -188,7 +190,7 @@ Page    6 size:  595.276 x 841.89 pts (A4)
 
 注意：本素材**不使用 `/Rotate`**。PDF.js 的 `getViewport()` 會套用 `/Rotate`，但 `pdfinfo` 會回報未旋轉的 MediaBox 加 `rot 90`，兩個工具判讀不一致（spec §5）。直接用不同的 MediaBox 尺寸可避開這個陷阱。
 
-- [ ] **Step 5: 確認未破壞既有測試**
+- [x] **Step 5: 確認未破壞既有測試**
 
 Run:
 ```bash
@@ -197,7 +199,7 @@ cd books && npm test
 
 Expected: 既有測試全數通過，輸出無新增警告。本任務未動任何 TypeScript，此步驟只是確認工作區乾淨。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/kaellim/Desktop/projects/library
@@ -240,7 +242,7 @@ letterbox 白邊缺陷。新增 PyMuPDF 產生器產出 L,P,P,L,P,P 的 A4
 
 **本任務無自動化測試**，理由見 spec §5：本修改刪除的是 canvas 繪圖呼叫，斷言需要真實 canvas 與像素比對；現有測試基礎設施是 node 環境純函式測試，為此引入 jsdom 或 canvas mock 成本遠高於價值，且 mock 出來的 canvas 無法驗證真正要驗證的東西（實際像素）。驗證方式為 Step 5 的目視檢查清單。
 
-- [ ] **Step 1: 刪除白色填滿並更新 docstring**
+- [x] **Step 1: 刪除白色填滿並更新 docstring**
 
 修改 `books/src/app.ts`。
 
@@ -273,7 +275,7 @@ Docstring（原 `:128-135`）—— 將 `white canvas` 改為 `transparent canva
 
 其後的 `let dw: number, dh: number, dx: number, dy: number;` 及 `drawImage` 邏輯**完全不動**。
 
-- [ ] **Step 2: 型別檢查**
+- [x] **Step 2: 型別檢查**
 
 Run:
 ```bash
@@ -282,7 +284,7 @@ cd books && npm run typecheck
 
 Expected: 無輸出、exit code 0。（`outCtx` 仍被後續的 `drawImage` 使用，不會產生 unused variable 錯誤。）
 
-- [ ] **Step 3: 執行既有測試**
+- [x] **Step 3: 執行既有測試**
 
 Run:
 ```bash
@@ -291,7 +293,7 @@ cd books && npm test
 
 Expected: 既有測試全數通過，輸出無新增警告。
 
-- [ ] **Step 4: 建置**
+- [x] **Step 4: 建置**
 
 Run:
 ```bash
@@ -300,7 +302,7 @@ cd books && npm run build
 
 Expected: Rollup 成功產出，無錯誤。（`npm run build` 只跑 `rollup -c`；**不要**跑 `build:all`，那會重建 StPageFlip fork，而本次不動 fork。）
 
-- [ ] **Step 5: 瀏覽器目視驗證**
+- [ ] **Step 5: 瀏覽器目視驗證**（由 controller 於工作流程後執行，實作者未跑）
 
 啟動本機伺服器：
 ```bash
@@ -335,6 +337,32 @@ PDFViewer.load('/tests/fixtures/mixed-aspect.pdf')
 7. `#book` 的 drop-shadow 現在會貼合真實頁面輪廓而非方形外框 —— 確認觀感可接受，
    不會顯得突兀或出現雙重陰影（spec RK-4，未經實測的判斷）
 
+**接著必須另外載入第二個素材，檢查對開（spread）模式**：
+
+```js
+PDFViewer.load('/tests/fixtures/mixed-portrait.pdf')
+```
+
+`mixed-aspect.pdf` 的 landscape 頁 aspect 為 1.414，超過 `SPREAD_ASPECT_THRESHOLD`
+1.3（`app.ts:368-369`），會觸發 `forceSinglePage`（`app.ts:548`）→ `Orientation.PORTRAIT`
+→ `CanvasRender.drawEdges()` 在 `CanvasRender.ts:123` 直接 return。也就是說**單靠
+`mixed-aspect.pdf` 無法驗證對開模式**。
+
+`mixed-portrait.pdf` 為全直式但尺寸混合（A4 + US Letter），最大 aspect 0.773 未達
+1.3，因此維持對開，同時每一頁仍落入 letterbox slow path。逐項確認：
+
+8. 對開模式下左右兩頁的 letterbox 區域無白邊，顯示深藍背景
+9. 頁面內容與 StPageFlip 書口（fore-edge，`CanvasRender.ts:152-161` 畫在
+   `rect.left` / `rect.left + rect.width` 附近）之間的**接縫觀感可接受** ——
+   該處先前被白色填滿遮住，改透明後頁面內容內縮而書口不動，兩者間會出現一道
+   深色間隙。**這是本修改的已知副作用，非新缺陷**：根因是 `app.ts:358-359` 用兩個
+   獨立 max() 算出不屬於任何真實頁面的目標尺寸（spec RK-2），修目標尺寸選取才是
+   根治，屬延後項目。
+10. 翻頁動畫期間，翻動頁的透明邊界不會出現白色閃爍
+
+**若第 9 項觀感不佳**，停止並回報，不要自行改 fork 或調整尺寸邏輯 —— 那會踩到本
+計畫明訂的延後項目，需另案處理。
+
 第 3 項針對 lossy WebP 的 alpha 通道。`toDataUrl`（`app.ts:122-126`）在支援時用 `canvas.toDataURL('image/webp', 0.92)`。WebP 支援 alpha，但 0.92 lossy 的 alpha 邊緣品質未經實測。
 
 **若第 3 項失敗**（邊緣出現髒邊或殘留白線），依序嘗試，每次只改一項並重新目視確認：
@@ -349,7 +377,7 @@ PDFViewer.load('/tests/fixtures/mixed-aspect.pdf')
 
 **若第 7 項觀感不佳**，停止並回報，不要自行加 CSS 修飾陰影。那屬於設計決策，需使用者判斷。
 
-- [ ] **Step 6: 以既有均勻直式 PDF 確認無回歸**
+- [ ] **Step 6: 以既有均勻直式 PDF 確認無回歸**（由 controller 於工作流程後執行，實作者未跑）
 
 在同一個無痕視窗重新載入 `http://localhost:8000/`（會自動載入 `./sample.pdf`），
 或在 console 執行 `PDFViewer.load('/sample.pdf')`。
@@ -358,7 +386,7 @@ Expected: 69 頁 A4 直式書的顯示與修改前**完全相同** —— 對開
 
 此步驟確認本修改未影響均勻直式文件。均勻直式的 PDF 走 fast path（`app.ts:147`）從不進入被修改的程式碼，因此預期零差異；本步驟是驗證該推論。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/kaellim/Desktop/projects/library
@@ -385,7 +413,14 @@ sample.pdf 確認）。
 
 ## 完成後
 
-**部署**：`books/` 是靜態資源，由 dashboard 容器提供。
+**部署**：`books/` 是靜態資源，由 worker 容器以唯讀 bind mount 直接提供
+（`supabase-docker/docker-compose.yml:636` `- ../books:/app/books:ro`，`:630` `BOOKS_DIR`），
+**部署時不會重新建置**。`books/index.html:163` 直接載入 `<script type="module" src="app.js">`。
+
+> **因此 `books/app.js` 與 `books/app.js.map` 必須與 `books/src/app.ts` 同一批 commit。**
+> 這兩個檔案已納入版控，是正式環境實際送到瀏覽器的檔案。只 commit `src/app.ts`
+> 會讓 `git pull` 拉到舊的 bundle，修正完全不會生效。repo 既有慣例亦是如此
+> （640599f、db2a513、3416e6e、19fa74c 皆同批 commit）。
 
 ```bash
 # 正式機
@@ -394,7 +429,13 @@ git pull
 sudo docker compose up -d --build dashboard
 ```
 
-**提醒使用者**：既有 IndexedDB 快取仍含白邊。使用者需清除瀏覽器快取，或等條目自然汰換，才會看到修正結果。
+**提醒使用者**：既有 IndexedDB 快取仍含白邊。`buildCacheKey`（`cache.ts:46`）只編入
+`url::page::scale::WxH`，**不含渲染格式或修正版號**，所以鍵值不變、既有條目不會失效；
+清除器（`cache.ts:91-99`）只淘汰超過 `MAX_AGE_MS`（30 天）的條目。
+
+也就是說：**已看過的頁面最長會持續顯示白邊達 30 天**，除非使用者主動清除網站資料。
+上線時應主動告知使用者清除瀏覽器快取（DevTools → Application → Storage），
+不要只說「等自然汰換」。
 
 **驗收問題**（spec §7 Q-A）：上線後請使用者確認是否滿意。
 
