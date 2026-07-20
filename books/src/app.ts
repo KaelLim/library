@@ -129,9 +129,14 @@ function toDataUrl(canvas: HTMLCanvasElement): string {
  * Render one PDF page to a data URL sized (targetWidth, targetHeight).
  * If the page's native aspect matches the target within EPSILON, renders
  * directly at target dims. Otherwise renders at native and composites onto
- * a target-sized white canvas with aspect-fit (letterbox), so mixed-aspect
- * PDFs (e.g. portrait cover + landscape spreads) don't get stretched by
- * StPageFlip's uniform-size drawImage.
+ * a target-sized transparent canvas with aspect-fit (letterbox), so
+ * mixed-aspect PDFs (e.g. portrait cover + landscape spreads) don't get
+ * stretched by StPageFlip's uniform-size drawImage.
+ *
+ * The letterbox region is left transparent on purpose. ImagePage draws with
+ * canvasBgColor 'transparent' (app.ts) so it clearRects then drawImages,
+ * meaning anything painted here is visible against the #1a1a2e book
+ * background. Filling it white produced the reported white bars.
  */
 async function renderPageToImage(
   pdf: PDFDocumentProxy,
@@ -165,8 +170,6 @@ async function renderPageToImage(
   outCanvas.width = targetWidth;
   outCanvas.height = targetHeight;
   const outCtx = get2dContext(outCanvas);
-  outCtx.fillStyle = '#ffffff';
-  outCtx.fillRect(0, 0, targetWidth, targetHeight);
 
   let dw: number, dh: number, dx: number, dy: number;
   if (nativeAspect > targetAspect) {
