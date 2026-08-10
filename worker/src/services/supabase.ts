@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import type { Article, AuditLog, Category, Weekly, Book, BookInsert, BooksCategory } from '../types/index.js';
+import { toProgressRow } from './import-progress-row.js';
 
 let supabase: SupabaseClient;
 
@@ -205,6 +206,8 @@ export interface ImportProgress {
   step: string;
   progress?: string;
   error?: string;
+  /** 失敗時帶入「真正失敗的步驟」；step==='failed' 時會被存進 import_progress 欄。 */
+  failedStep?: string;
 }
 
 /**
@@ -216,11 +219,7 @@ export async function updateImportProgress(
 ): Promise<void> {
   const { error } = await getSupabase()
     .from('weekly')
-    .update({
-      import_step: progress.step,
-      import_progress: progress.progress || null,
-      import_error: progress.error || null,
-    })
+    .update(toProgressRow(progress))
     .eq('week_number', weeklyId);
 
   if (error) {

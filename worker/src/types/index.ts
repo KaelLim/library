@@ -138,4 +138,6 @@ export interface ImportProgress {
   step: ImportStep;
   progress?: string;
   error?: string;
+  /** 失敗時的真正失敗步驟（step==='failed' 時填入），供 UI 標記正確步驟。 */
+  failedStep?: ImportStep;
 }

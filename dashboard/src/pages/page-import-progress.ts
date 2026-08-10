@@ -56,6 +56,9 @@ export class PageImportProgress extends LitElement {
   @state()
   private error = '';
 
+  @state()
+  private failedStep: ImportStep | '' = '';
+
   private channel?: RealtimeChannel;
 
   async connectedCallback(): Promise<void> {
@@ -83,6 +86,7 @@ export class PageImportProgress extends LitElement {
       this.currentStep = status.step;
       this.progress = status.progress || '';
       this.error = status.error || '';
+      this.failedStep = status.failedStep || '';
     }
   }
 
@@ -92,6 +96,7 @@ export class PageImportProgress extends LitElement {
         this.currentStep = update.step;
         this.progress = update.progress || '';
         this.error = update.error || '';
+        this.failedStep = update.failedStep || '';
       },
       onSessionOutput: (update: SessionOutputUpdate) => {
         // AI 輸出直接覆蓋 progress 顯示
@@ -130,6 +135,7 @@ export class PageImportProgress extends LitElement {
             currentStep=${this.currentStep}
             progress=${this.progress}
             error=${this.error}
+            failedStep=${this.failedStep}
             weekNumber=${this.weekNumber}
           ></tc-progress-stepper>
 

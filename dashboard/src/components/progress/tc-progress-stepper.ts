@@ -89,12 +89,18 @@ export class TcProgressStepper extends LitElement {
   @property({ type: String }) currentStep: ImportStep = 'starting';
   @property({ type: String }) progress = '';
   @property({ type: String }) error = '';
+  @property({ type: String }) failedStep = '';
   @property({ type: Number }) weekNumber = 0;
 
   render() {
-    const currentIndex = getStepIndex(this.currentStep);
     const isCompleted = this.currentStep === 'completed';
     const isFailed = this.currentStep === 'failed';
+    // 失敗時，紅叉要標在「真正失敗的步驟」(failedStep)；沒有 failedStep 時退回舊行為
+    // （getStepIndex('failed') → 0 → 標在「初始化」），確保無回歸。
+    const currentIndex =
+      isFailed && this.failedStep
+        ? getStepIndex(this.failedStep as ImportStep)
+        : getStepIndex(this.currentStep);
 
     // Filter out 'completed' and 'failed' from display steps
     const displaySteps = IMPORT_STEPS.filter(

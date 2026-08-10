@@ -20,7 +20,7 @@ import {
   broadcastImportProgress,
   clearImportProgress,
 } from './services/supabase.js';
-import type { ImportStep, ParsedWeekly } from './types/index.js';
+import type { ImportProgress, ImportStep, ParsedWeekly } from './types/index.js';
 import { basename } from 'path';
 
 interface WorkerOptions {
@@ -40,15 +40,20 @@ export async function runImportWorker(
 ): Promise<void> {
   const { filePath, docId, userEmail } = options;
   let weeklyId: number | undefined;
+  // 追蹤目前作用中的步驟；失敗時把它帶進 progressData.failedStep，讓 UI 標在正確步驟
+  // （否則 catch 只送 step:'failed'，前端會一律把紅叉落在第一列「初始化」）。
+  let activeStep: ImportStep = 'starting';
 
   // 進度更新函式：console + callback + DB + broadcast
   const updateProgress = async (step: ImportStep, progress?: string, error?: string) => {
+    if (step !== 'failed' && step !== 'completed') activeStep = step;
     console.log(`[${step}]`, progress || '', error ? `Error: ${error}` : '');
     onProgress?.(step, progress, error);
 
     // 如果有 weeklyId，更新 DB 和廣播
     if (weeklyId) {
-      const progressData = { step, progress, error };
+      const progressData: ImportProgress = { step, progress, error };
+      if (step === 'failed') progressData.failedStep = activeStep;
       await updateImportProgress(weeklyId, progressData);
       await broadcastImportProgress(weeklyId, progressData);
     }

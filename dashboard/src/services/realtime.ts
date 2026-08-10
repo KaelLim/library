@@ -6,6 +6,8 @@ export interface ImportProgressUpdate {
   step: ImportStep;
   progress?: string;
   error?: string;
+  /** step==='failed' 時，真正失敗的步驟（供 UI 標記正確步驟）。 */
+  failedStep?: ImportStep;
 }
 
 export interface SessionOutputMessage {
@@ -197,9 +199,14 @@ export async function getLatestImportStatus(weeklyId: number): Promise<ImportPro
     return null;
   }
 
+  // 失敗列的 import_progress 存的是「真正失敗的步驟」（worker 端 toProgressRow 編碼），
+  // 取出當 failedStep，並避免拿它當進度文字顯示。
+  const step = data.import_step as ImportStep;
+  const isFailed = step === 'failed';
   return {
-    step: data.import_step as ImportStep,
-    progress: data.import_progress || undefined,
+    step,
+    progress: isFailed ? undefined : data.import_progress || undefined,
     error: data.import_error || undefined,
+    failedStep: isFailed ? (data.import_progress as ImportStep) || undefined : undefined,
   };
 }
