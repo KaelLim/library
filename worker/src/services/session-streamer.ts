@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { getSupabase } from './supabase.js';
 import { updateAiActivity } from '../server.js';
+import { checkAiTimeout, resolveTimeoutConfig } from './ai-timeout.js';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // Type definitions for Claude Agent SDK query messages
@@ -148,8 +149,11 @@ export async function runSessionWithStreaming(
   let fullText = '';
   let accumulatedText = '';
   let streamEventCount = 0;
-  const IDLE_TIMEOUT = 2 * 60 * 1000; // 2 minutes without any activity
+  // 逾時分兩段：首個內容 token 前用較寬鬆預算（Opus 冷啟動較慢），之後用較緊的
+  // idle 上限。見 ai-timeout.ts 說明。可用 AI_FIRST_TOKEN_TIMEOUT_MS / AI_IDLE_TIMEOUT_MS 覆蓋。
+  const timeoutConfig = resolveTimeoutConfig(process.env);
   let lastActivityTime = Date.now();
+  let sawFirstContent = false;
 
   try {
     console.log(`${logPrefix} Starting with prompt length:`, prompt.length);
@@ -173,9 +177,10 @@ export async function runSessionWithStreaming(
         ...(systemPrompt ? { systemPrompt } : {}),
       },
     })) {
-      // Check idle timeout (no activity for 2 minutes)
-      if (Date.now() - lastActivityTime > IDLE_TIMEOUT) {
-        throw new Error('AI query idle timeout: no response for 2 minutes');
+      // Check timeout：首個內容 token 前用 first-token 預算，之後用 idle 上限
+      const timeoutError = checkAiTimeout(Date.now(), lastActivityTime, sawFirstContent, timeoutConfig);
+      if (timeoutError) {
+        throw new Error(timeoutError);
       }
 
       // 處理 stream_event (partial messages - token level)
@@ -190,6 +195,7 @@ export async function runSessionWithStreaming(
         if (event?.type === 'content_block_delta') {
           const delta = event.delta;
           if (delta?.type === 'text_delta' && delta?.text) {
+            sawFirstContent = true; // 收到第一個內容 token 後改用較緊的 idle 上限
             fullText += delta.text;
             accumulatedText += delta.text;
 
