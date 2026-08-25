@@ -13,7 +13,7 @@ export interface TimeoutConfig {
   idleTimeoutMs: number;
 }
 
-export const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 5 * 60 * 1000; // 首個 token 預算
+export const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 10 * 60 * 1000; // 首個 token 預算（10 分鐘；opus 語義判讀 + thinking 較久）
 export const DEFAULT_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 中途閒置上限
 
 /**

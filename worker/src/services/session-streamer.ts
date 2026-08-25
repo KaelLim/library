@@ -174,6 +174,16 @@ export async function runSessionWithStreaming(
         allowedTools,
         maxTurns,
         includePartialMessages: true, // 關鍵！啟用 token-level streaming
+        // display:'summarized' 讓 extended thinking 期間持續吐 thinking_delta，
+        // 避免長 thinking 的靜默期把兩層看門狗（本檔 + SDK CLAUDE_STREAM_IDLE_TIMEOUT_MS）觸發。
+        thinking: { type: 'adaptive', display: 'summarized' },
+        // SDK 自身的 idle/總請求逾時預設 5min/10min，拉高到與 first-token 預算對齊，
+        // 讓真正需要長 thinking 的解析不被 SDK 傳輸層先砍。
+        env: {
+          ...process.env,
+          CLAUDE_STREAM_IDLE_TIMEOUT_MS: process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS ?? '600000', // 10 分鐘
+          API_TIMEOUT_MS: process.env.API_TIMEOUT_MS ?? '900000', // 15 分鐘總請求上限，留 first-token 後輸出空間
+        },
         ...(systemPrompt ? { systemPrompt } : {}),
       },
     })) {
