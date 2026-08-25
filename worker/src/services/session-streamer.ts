@@ -174,6 +174,12 @@ export async function runSessionWithStreaming(
         allowedTools,
         maxTurns,
         includePartialMessages: true, // 關鍵！啟用 token-level streaming
+        // ── Tool-free：這幾個步驟都是「輸入→JSON/文字」的純生成，不需任何工具。
+        // allowedTools:[] 只是「不預先核准」（權限層），工具仍在 context → 模型仍會 tool_use
+        // → maxTurns:1 撞 error_max_turns。必須從「可用性層」把工具移出 context：
+        disallowedTools: ['*'], // 封鎖所有工具（含 claude.ai 連接器帶進來的 MCP 工具）
+        mcpServers: {}, // 不掛任何 MCP
+        settingSources: [], // 不載入 user/project 的 .claude 設定（skill 由我們手動當 systemPrompt 傳）
         // display:'summarized' 讓 extended thinking 期間持續吐 thinking_delta，
         // 避免長 thinking 的靜默期把兩層看門狗（本檔 + SDK CLAUDE_STREAM_IDLE_TIMEOUT_MS）觸發。
         thinking: { type: 'adaptive', display: 'summarized' },
@@ -183,6 +189,7 @@ export async function runSessionWithStreaming(
           ...process.env,
           CLAUDE_STREAM_IDLE_TIMEOUT_MS: process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS ?? '600000', // 10 分鐘
           API_TIMEOUT_MS: process.env.API_TIMEOUT_MS ?? '900000', // 15 分鐘總請求上限，留 first-token 後輸出空間
+          ENABLE_CLAUDEAI_MCP_SERVERS: process.env.ENABLE_CLAUDEAI_MCP_SERVERS ?? 'false', // 關掉 claude.ai OAuth 連接器工具
         },
         ...(systemPrompt ? { systemPrompt } : {}),
       },
@@ -196,6 +203,12 @@ export async function runSessionWithStreaming(
       // 處理 stream_event (partial messages - token level)
       const message = msg as QueryMessage;
       lastActivityTime = Date.now();
+
+      // 一次性記錄實際可用的工具，確認 tool-free 生效（正式機 log 應為 []）
+      if ((message as { type?: string; subtype?: string }).type === 'system' &&
+          (message as { subtype?: string }).subtype === 'init') {
+        console.log(`${logPrefix} init available tools:`, JSON.stringify((message as { tools?: unknown }).tools ?? []));
+      }
       updateAiActivity();
       if (message.type === 'stream_event') {
         streamEventCount++;
