@@ -10,6 +10,7 @@ import {
   startBookCreate,
   startBookPdfReplace,
 } from '../services/book-upload.js';
+import { buildWeeklyDetail } from '../services/weekly-detail.js';
 import { buildEdmPayload, extractImagesFromMarkdown } from '../services/edm-format.js';
 
 const PUBLIC_BASE = process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000';
@@ -156,32 +157,58 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
     const { data: articles, error: articlesError } = await articlesQuery;
     if (articlesError) throw articlesError;
 
-    // Group articles by category
-    const categoryMap = new Map<number, { id: number; name: string; sort_order: number; articles: Record<string, unknown>[] }>();
-    for (const article of articles || []) {
-      const cat = (article as any).category;
-      const catId = article.category_id;
-      if (!categoryMap.has(catId)) {
-        categoryMap.set(catId, {
-          id: catId,
-          name: cat?.name || '未分類',
-          sort_order: cat?.sort_order || 0,
-          articles: [],
-        });
-      }
-      const { category, ...articleData } = article as any;
-      categoryMap.get(catId)!.articles.push(articleData);
+    return buildWeeklyDetail(weekly, articles || []);
+  });
+
+  // GET /weekly/latest - 最新一期已發布週報詳情（與 /weekly/:id 同結構；公開，不需認證）
+  fastify.get<{
+    Querystring: { platform?: string };
+  }>('/weekly/latest', {
+    schema: {
+      tags: ['週報'],
+      summary: '最新一期週報詳情',
+      description: '取得最新一期已發布週報，含分類與文章（與 /weekly/:id 相同結構，免帶期數）',
+      querystring: {
+        type: 'object',
+        properties: {
+          platform: { type: 'string', enum: ['docs', 'digital'], description: '篩選平台版本' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { platform } = request.query;
+
+    const { data: weekly, error: weeklyError } = await getSupabase()
+      .from('weekly')
+      .select('*')
+      .eq('status', 'published')
+      .order('week_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (weeklyError) throw weeklyError;
+    if (!weekly) {
+      return reply.status(404).send({
+        error: 'NO_WEEKLY',
+        message: 'No published weekly found',
+      });
     }
 
-    const categories = Array.from(categoryMap.values())
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map((cat) => ({ ...cat, article_count: cat.articles.length }));
+    let articlesQuery = getSupabase()
+      .from('articles')
+      .select('*, category:category_id(*)')
+      .eq('weekly_id', weekly.week_number)
+      .order('category_id')
+      .order('id');
 
-    return {
-      ...weekly,
-      article_count: (articles || []).length,
-      categories,
-    };
+    if (platform) {
+      articlesQuery = articlesQuery.eq('platform', platform);
+    }
+
+    const { data: articles, error: articlesError } = await articlesQuery;
+    if (articlesError) throw articlesError;
+
+    return buildWeeklyDetail(weekly, articles || []);
   });
 
   // GET /weekly/latest/edm - 最新一期週報 EDM 扁平 JSON（公開，不需認證）
