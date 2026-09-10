@@ -10,6 +10,7 @@ import {
   startBookCreate,
   startBookPdfReplace,
 } from '../services/book-upload.js';
+import { buildEdmPayload, extractImagesFromMarkdown } from '../services/edm-format.js';
 
 const PUBLIC_BASE = process.env.SUPABASE_PUBLIC_URL || process.env.API_EXTERNAL_URL || 'http://localhost:8000';
 const WEEKLY_FRONTEND_URL = process.env.WEEKLY_FRONTEND_URL || 'https://weekly.tzuchi.org.tw';
@@ -39,17 +40,6 @@ function paginate<T>(data: T[], total: number, limit: number, offset: number) {
   const page = Math.floor(offset / limit) + 1;
   const page_count = Math.ceil(total / limit) || 1;
   return { total, page, page_count, limit, offset, data };
-}
-
-function extractImagesFromMarkdown(content: string): string[] {
-  if (!content) return [];
-  const regex = /!\[[^\]]*\]\(([^\s)]+)\)/g;
-  const images: string[] = [];
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    images.push(match[1]);
-  }
-  return images;
 }
 
 const apiV1Routes: FastifyPluginAsync = async (fastify) => {
@@ -202,8 +192,10 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
       description: [
         '取得最新一期已發布週報，回傳 EDM 系統可直接消費的扁平 key-value JSON。',
         '',
-        '**section 編號規則**：依 `category_id` 1→8 順序，每個 category 取 `platform=digital` 且 `id` 最小那篇。',
-        '找到幾篇就回幾組 section（連續編號從 1 開始，沒文章的 category 自動省略，**最多 8 組**）。',
+        '**section 編號規則**：`section{N}` 固定對應 `category_id = N`（N 為 1 ~ 8），',
+        '每個 category 取 `platform=digital` 且 `id` 最小那篇。',
+        '**位置固定不位移**：沒有文章的 category，該組四個欄位一律回空字串 `""`（不會由後面的 category 遞補上來）。',
+        '因此永遠回傳 section1 ~ section8 共 8 組欄位。',
         '',
         '**動態欄位**：`section{N}_pic`、`section{N}_title`、`section{N}_text`、`section{N}_link`（N 為 1 ~ 8）。',
         '',
@@ -256,67 +248,11 @@ const apiV1Routes: FastifyPluginAsync = async (fastify) => {
 
     if (aErr) throw aErr;
 
-    // 每個 category 取 id 最小的那篇（已 ORDER BY category_id, id ASC，第一次出現就是最小的）
-    const byCategoryId = new Map<number, (typeof articles)[number]>();
-    for (const a of articles || []) {
-      if (!byCategoryId.has(a.category_id)) byCategoryId.set(a.category_id, a);
-    }
-
-    // 按 category_id 1→8 順序收集
-    const sections: (typeof articles)[number][] = [];
-    for (let cid = 1; cid <= 8; cid++) {
-      const a = byCategoryId.get(cid);
-      if (a) sections.push(a);
-    }
-
-    // 格式化日期
-    const pubDate = new Date(weekly.publish_date);
-    const yyyy = pubDate.getUTCFullYear();
-    const mm = pubDate.getUTCMonth() + 1;
-    const dd = pubDate.getUTCDate();
-    const titleDate = `${yyyy}年${mm}月${dd}日`;
-    const yyyymmdd = `${yyyy}${String(mm).padStart(2, '0')}${String(dd).padStart(2, '0')}`;
-
-    const campaign = `weekly-${weekly.week_number}-${yyyymmdd}`;
-    const homepageParams = new URLSearchParams({
-      utm_source: 'aq_edm',
-      utm_medium: 'email',
-      utm_campaign: campaign,
+    // section{N} 固定對應 category_id = N；沒文章的 category 該組留空、不位移。
+    return buildEdmPayload(weekly, articles || [], {
+      frontendUrl: WEEKLY_FRONTEND_URL,
+      toPublicUrl,
     });
-
-    const result: Record<string, string | number> = {
-      title_num: weekly.week_number,
-      title_date: titleDate,
-      title_link: `${WEEKLY_FRONTEND_URL}/?${homepageParams.toString()}`,
-    };
-
-    for (let idx = 0; idx < sections.length; idx++) {
-      const a = sections[idx] as any;
-      const n = idx + 1;
-
-      // 第一張圖：markdown 優先，HTML img 次之
-      const mdImages = extractImagesFromMarkdown(a.content || '');
-      let pic = mdImages[0] || '';
-      if (!pic) {
-        const htmlMatch = (a.content || '').match(/<img[^>]+src=["']([^"']+)["']/i);
-        if (htmlMatch) pic = htmlMatch[1];
-      }
-
-      const categoryName = a.category?.name || '';
-      const articleParams = new URLSearchParams({
-        utm_source: 'aq_edm',
-        utm_medium: 'email',
-        utm_campaign: campaign,
-        utm_content: `${a.id}-${categoryName}`,
-      });
-
-      result[`section${n}_pic`] = pic ? (toPublicUrl(pic, 'weekly') || pic) : '';
-      result[`section${n}_title`] = a.title || '';
-      result[`section${n}_text`] = a.description || '';
-      result[`section${n}_link`] = `${WEEKLY_FRONTEND_URL}/article/${a.id}/?${articleParams.toString()}`;
-    }
-
-    return result;
   });
 
   // GET /weekly-feed - 週報 Feed（含文章摘要，取代 N+1 查詢）
