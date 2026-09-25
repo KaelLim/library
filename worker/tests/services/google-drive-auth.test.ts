@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import {
   parseServiceAccountKey,
   readRawServiceAccountKey,
-  pickDriveToken,
 } from '../../src/services/google-drive-auth.js';
 
 const VALID_KEY = JSON.stringify({
@@ -90,20 +89,5 @@ describe('readRawServiceAccountKey', () => {
   it('returns null when the file path is set but the file is unreadable', () => {
     process.env.GOOGLE_SERVICE_ACCOUNT_FILE = join(dir, 'does-not-exist.json');
     expect(readRawServiceAccountKey()).toBeNull();
-  });
-});
-
-describe('pickDriveToken', () => {
-  it('prefers the service account token when available', () => {
-    expect(pickDriveToken('sa-token', 'user-token')).toBe('sa-token');
-  });
-
-  it('falls back to the user provider token when SA token is null', () => {
-    expect(pickDriveToken(null, 'user-token')).toBe('user-token');
-  });
-
-  it('returns null when neither token is available', () => {
-    expect(pickDriveToken(null, undefined)).toBeNull();
-    expect(pickDriveToken(null, '')).toBeNull();
   });
 });

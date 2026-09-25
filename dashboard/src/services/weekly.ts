@@ -191,7 +191,6 @@ export async function replaceWeeklyImages(
 
   const body: Record<string, string> = {};
   if (opts.driveFolderUrl) body.drive_folder_url = opts.driveFolderUrl;
-  if (authStore.providerToken) body.provider_token = authStore.providerToken;
   if (opts.userEmail) body.user_email = opts.userEmail;
 
   const response = await fetch(`/worker/weekly/${weekNumber}/replace-images`, {

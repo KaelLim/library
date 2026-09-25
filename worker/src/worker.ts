@@ -3,7 +3,7 @@ import { processAllImages } from './services/image-processor.js';
 import { replaceWithDriveHighRes } from './services/image-matcher.js';
 import { validateDocImagesAgainstDrive, ImageValidationError } from './services/image-code.js';
 import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
-import { getServiceAccessToken, isServiceAccountConfigured } from './services/google-drive-auth.js';
+import { getServiceAccessToken } from './services/google-drive-auth.js';
 import { parseWeeklyMarkdown, generateCleanMarkdown } from './services/ai-parser.js';
 import { rewriteForDigital, generateDescription } from './services/ai-rewriter.js';
 import { normalizeNumbers } from './services/normalize-numbers.js';
@@ -29,7 +29,6 @@ interface WorkerOptions {
   weeklyId?: number;
   userEmail?: string;
   driveFolderUrl?: string;
-  providerToken?: string;
 }
 
 type ProgressCallback = (step: ImportStep, progress?: string, error?: string) => void;
@@ -119,24 +118,11 @@ export async function runImportWorker(
       throw new Error(`無效的 Drive 資料夾 URL：${options.driveFolderUrl}`);
     }
 
-    let driveToken: string | null = null;
-    let driveTokenSource = '';
-    try {
-      if (isServiceAccountConfigured()) {
-        driveToken = await getServiceAccessToken();
-        driveTokenSource = 'service_account';
-      }
-    } catch (err) {
-      console.warn('[validating_images] Service account token failed, fallback to user token:', err);
-    }
-    if (!driveToken && options.providerToken) {
-      driveToken = options.providerToken;
-      driveTokenSource = 'user_oauth';
-    }
+    const driveToken = await getServiceAccessToken();
     if (!driveToken) {
-      throw new Error('無 Drive 認證，無法列出 x-x-x 檔案');
+      throw new Error('Google Drive Service Account 未設定，無法列出 x-x-x 檔案');
     }
-    console.log(`[validating_images] Using ${driveTokenSource} for Drive auth`);
+    console.log('[validating_images] Using service_account for Drive auth');
 
     await updateProgress('validating_images', '列出 Drive 圖片並驗證編號...');
     const driveFiles = await listImagesRecursive(driveToken, driveFolderId);
@@ -177,7 +163,7 @@ export async function runImportWorker(
       const outcome = await replaceWithDriveHighRes({
         weeklyId,
         xxxToDriveFile,
-        providerToken: driveToken,
+        driveToken,
         onProgress: async (msg) => updateProgress('replacing_images', msg),
       });
       console.log(

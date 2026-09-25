@@ -75,17 +75,6 @@ function loadKey(): ServiceAccountKey | null {
   return cachedKey;
 }
 
-/**
- * 選出實際要用的 Drive token：Service Account 優先，否則退回使用者 OAuth token。
- * 兩者皆無 → null。
- */
-export function pickDriveToken(
-  saToken: string | null,
-  providerToken?: string
-): string | null {
-  return saToken || providerToken || null;
-}
-
 export function isServiceAccountConfigured(): boolean {
   return loadKey() !== null;
 }
@@ -149,7 +138,7 @@ async function exchangeJwtForToken(jwt: string, key: ServiceAccountKey): Promise
 
 /**
  * 取得 Drive API access token。
- * env 未設 → 回 null（caller 應 fallback 至 user provider_token）。
+ * SA 未設定 → 回 null（caller 應回報「Service Account 未設定」）。
  * 設定但取 token 失敗 → throw Error。
  */
 export async function getServiceAccessToken(): Promise<string | null> {

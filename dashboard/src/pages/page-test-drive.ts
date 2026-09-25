@@ -1,6 +1,5 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { authStore } from '../stores/auth-store.js';
 import '../components/layout/tc-app-shell.js';
 import '../components/ui/tc-button.js';
 import '../components/ui/tc-input.js';
@@ -61,22 +60,6 @@ export class PageTestDrive extends LitElement {
       color: var(--color-text-muted);
       font-size: 12px;
     }
-
-    .token-status {
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 13px;
-    }
-
-    .token-ok {
-      background: #f0fdf4;
-      color: #166534;
-    }
-
-    .token-missing {
-      background: #fef2f2;
-      color: #991b1b;
-    }
   `;
 
   @state() private folderUrl = '';
@@ -85,15 +68,9 @@ export class PageTestDrive extends LitElement {
   @state() private error = '';
 
   render() {
-    const hasToken = !!authStore.providerToken;
-
     return html`
       <tc-app-shell pageTitle="Drive API 測試">
         <div class="container">
-          <div class="token-status ${hasToken ? 'token-ok' : 'token-missing'}">
-            Provider Token: ${hasToken ? '✓ 已取得' : '✗ 未取得（請登出再重新登入）'}
-          </div>
-
           <tc-input
             label="圖片資料夾 URL"
             placeholder="https://drive.google.com/drive/folders/..."
@@ -104,7 +81,7 @@ export class PageTestDrive extends LitElement {
           <tc-button
             variant="primary"
             ?loading=${this.loading}
-            ?disabled=${!hasToken || !this.folderUrl}
+            ?disabled=${!this.folderUrl}
             @click=${this.handleTest}
           >
             測試讀取
@@ -143,7 +120,6 @@ export class PageTestDrive extends LitElement {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           folder_url: this.folderUrl,
-          provider_token: authStore.providerToken,
         }),
       });
 

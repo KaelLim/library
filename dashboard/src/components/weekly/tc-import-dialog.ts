@@ -198,17 +198,13 @@ export class TcImportDialog extends LitElement {
   }
 
   private get isValid(): boolean {
-    // Drive 授權狀態僅顯示，不阻擋送出（worker 端會用 service account fallback）
+    // Drive 授權狀態僅顯示，不阻擋送出（worker 端由 service account 讀取 Drive）
     return (
       isValidDocUrl(this.docUrl) &&
       isValidDriveFolderUrl(this.driveFolderUrl) &&
       this.weekNumber > 0 &&
       this.claudeAuthenticated === true
     );
-  }
-
-  private get hasDriveToken(): boolean {
-    return !!authStore.providerToken;
   }
 
   private renderClaudeStatus() {
@@ -228,19 +224,9 @@ export class TcImportDialog extends LitElement {
     if (this.driveServiceAccount) {
       return html`<div class="claude-status ok">Drive 已透過服務帳號處理</div>`;
     }
-    if (this.hasDriveToken) {
-      return html`<div class="claude-status ok">Google Drive 已授權（OAuth）</div>`;
-    }
     return html`
-      <div class="claude-status error status-row">
-        <span>Drive 尚未授權（服務帳號未設定）</span>
-        <button class="relogin-btn" @click=${this.handleReloginGoogle}>重新登入</button>
-      </div>
+      <div class="claude-status error">Drive 服務帳號未設定，請聯繫管理員</div>
     `;
-  }
-
-  private handleReloginGoogle(): void {
-    authStore.signInWithGoogle();
   }
 
   private async checkClaude(): Promise<void> {
@@ -306,8 +292,6 @@ export class TcImportDialog extends LitElement {
         weekly_id: this.weekNumber,
         user_email: authStore.userEmail || 'unknown',
         drive_folder_url: this.driveFolderUrl,
-        // service account 為主、user OAuth 為輔；token 有的話順便帶上做 fallback
-        provider_token: authStore.providerToken || undefined,
       });
 
       toastStore.success('匯入已開始');

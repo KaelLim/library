@@ -17,16 +17,16 @@ export interface ReplaceOutcome {
 export async function replaceWithDriveHighRes(args: {
   weeklyId: number;
   xxxToDriveFile: Map<string, DriveFile>;
-  providerToken: string;
+  driveToken: string;
   onProgress?: (msg: string) => void;
 }): Promise<ReplaceOutcome> {
-  const { weeklyId, xxxToDriveFile, providerToken, onProgress } = args;
+  const { weeklyId, xxxToDriveFile, driveToken, onProgress } = args;
   const total = xxxToDriveFile.size;
   let replaced = 0;
 
   for (const [xxx, file] of xxxToDriveFile) {
     onProgress?.(`替換 ${xxx} ← ${file.name}`);
-    const buffer = await downloadFile(providerToken, file.id);
+    const buffer = await downloadFile(driveToken, file.id);
     const compressed = await compressImage(buffer, file.mimeType);
     await uploadImage(weeklyId, xxx, compressed.buffer, compressed.mimeType);
     replaced += 1;

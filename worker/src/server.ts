@@ -14,7 +14,6 @@ import { initSupabase, getBookByBookId, incrementBookHits } from './services/sup
 import {
   getServiceAccessToken,
   isServiceAccountConfigured,
-  pickDriveToken,
 } from './services/google-drive-auth.js';
 import { apiV1Routes } from './routes/api-v1.js';
 import { articleRoutes } from './routes/articles.js';
@@ -337,9 +336,9 @@ fastify.get('/claude/status', {
   }
 });
 
-// Test Google Drive access（Service Account 優先，否則 fallback 使用者 OAuth token）
+// Test Google Drive access（走 Service Account）
 fastify.post<{
-  Body: { folder_url: string; provider_token?: string };
+  Body: { folder_url: string };
 }>('/test-drive', {
   preHandler: [requireAuth],
   schema: {
@@ -348,12 +347,11 @@ fastify.post<{
       required: ['folder_url'],
       properties: {
         folder_url: { type: 'string' },
-        provider_token: { type: 'string' },
       },
     },
   },
 }, async (request, reply) => {
-  const { folder_url, provider_token } = request.body;
+  const { folder_url } = request.body;
 
   if (!folder_url) {
     return reply.status(400).send({
@@ -370,23 +368,26 @@ fastify.post<{
     });
   }
 
-  // Service Account 優先，否則退回使用者 provider_token
-  let saToken: string | null = null;
-  if (isServiceAccountConfigured()) {
-    try {
-      saToken = await getServiceAccessToken();
-    } catch (error) {
-      return reply.status(500).send({
-        error: 'SA_TOKEN_ERROR',
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
+  if (!isServiceAccountConfigured()) {
+    return reply.status(400).send({
+      error: 'NO_DRIVE_AUTH',
+      message: 'Google Drive Service Account 未設定',
+    });
   }
-  const driveToken = pickDriveToken(saToken, provider_token);
+
+  let driveToken: string | null;
+  try {
+    driveToken = await getServiceAccessToken();
+  } catch (error) {
+    return reply.status(500).send({
+      error: 'SA_TOKEN_ERROR',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   if (!driveToken) {
     return reply.status(400).send({
       error: 'NO_DRIVE_AUTH',
-      message: 'Drive 認證不足：service account 未設定且未提供 user OAuth token',
+      message: 'Google Drive Service Account 未設定',
     });
   }
 
@@ -396,7 +397,7 @@ fastify.post<{
       folder_id: folderId,
       total: files.length,
       files,
-      auth: saToken ? 'service_account' : 'user_oauth',
+      auth: 'service_account',
     };
   } catch (error) {
     return reply.status(400).send({
@@ -413,7 +414,6 @@ fastify.post<{
     weekly_id?: number;
     user_email?: string;
     drive_folder_url: string;
-    provider_token?: string;
   };
 }>('/import', {
   preHandler: [requireAuth],
@@ -427,15 +427,14 @@ fastify.post<{
         weekly_id: { type: 'integer' },
         user_email: { type: 'string' },
         drive_folder_url: { type: 'string' },
-        provider_token: { type: 'string' },
       },
     },
   },
 }, async (request, reply) => {
-  const { doc_url, weekly_id, user_email, drive_folder_url, provider_token } = request.body;
+  const { doc_url, weekly_id, user_email, drive_folder_url } = request.body;
 
   const saConfigured = isServiceAccountConfigured();
-  console.log(`[Import] weekly_id=${weekly_id}, drive_folder_url=YES, sa=${saConfigured ? 'YES' : 'NO'}, provider_token=${provider_token ? 'YES' : 'NO'}`);
+  console.log(`[Import] weekly_id=${weekly_id}, drive_folder_url=YES, sa=${saConfigured ? 'YES' : 'NO'}`);
 
   if (!doc_url) {
     return reply.status(400).send({
@@ -451,11 +450,11 @@ fastify.post<{
     });
   }
 
-  // 至少一種 Drive 認證：service account 或 user OAuth provider_token
-  if (!saConfigured && !provider_token) {
+  // Drive 讀取走 Service Account
+  if (!saConfigured) {
     return reply.status(400).send({
       error: 'NO_DRIVE_AUTH',
-      message: 'Drive 認證不足：service account 未設定且 user OAuth token 缺失',
+      message: 'Google Drive Service Account 未設定',
     });
   }
 
@@ -503,7 +502,6 @@ fastify.post<{
       weeklyId: weekly_id,
       userEmail: user_email,
       driveFolderUrl: drive_folder_url,
-      providerToken: provider_token,
     },
     (step, progress, error) => {
       if (error) {

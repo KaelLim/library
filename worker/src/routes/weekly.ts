@@ -21,14 +21,15 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * 從 Drive 補圖（已上架週報用）
    * POST /weekly/:id/replace-images
-   * Body: { drive_folder_url?, provider_token?, user_email? }
+   * Body: { drive_folder_url?, user_email? }
    * - drive_folder_url 沒給就用 weekly.drive_folder_url
    * - 給了就同時 update weekly.drive_folder_url（下次預設值）
+   * - Drive 讀取走 Service Account
    * 回應 202 + task_id，訂閱 `image-replace:{task_id}` channel 看進度
    */
   fastify.post<{
     Params: { id: string };
-    Body: { drive_folder_url?: string; provider_token?: string; user_email?: string };
+    Body: { drive_folder_url?: string; user_email?: string };
   }>(
     '/:id/replace-images',
     {
@@ -46,7 +47,7 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(404).send({ error: 'NOT_FOUND', message: `Weekly ${weeklyId} not found` });
       }
 
-      const { drive_folder_url: bodyFolderUrl, provider_token, user_email } = request.body || {};
+      const { drive_folder_url: bodyFolderUrl, user_email } = request.body || {};
       const driveFolderUrl = bodyFolderUrl || weekly.drive_folder_url;
 
       if (!driveFolderUrl || !FOLDER_URL_RE.test(driveFolderUrl)) {
@@ -58,11 +59,10 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
 
       const driveFolderId = extractFolderId(driveFolderUrl)!;
 
-      const saConfigured = isServiceAccountConfigured();
-      if (!saConfigured && !provider_token) {
+      if (!isServiceAccountConfigured()) {
         return reply.status(400).send({
           error: 'NO_DRIVE_AUTH',
-          message: 'Drive 認證不足：service account 未設定且 user OAuth token 缺失',
+          message: 'Google Drive Service Account 未設定',
         });
       }
 
@@ -86,18 +86,17 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
             progress: '準備中...',
           });
 
-          // 取得 Drive token：SA 優先、OAuth fallback
+          // 取得 Drive token（Service Account）
           let driveToken: string | null = null;
           try {
-            if (saConfigured) driveToken = await getServiceAccessToken();
+            driveToken = await getServiceAccessToken();
           } catch (err) {
-            console.warn('[replace-images] SA token failed, will try user token:', err);
+            console.error('[replace-images] SA token failed:', err);
           }
-          if (!driveToken && provider_token) driveToken = provider_token;
           if (!driveToken) {
             await broadcastImageReplaceProgress(taskId, {
               step: 'failed',
-              error: '無 Drive 認證可用',
+              error: '無法取得 Google Drive Service Account token',
             });
             return;
           }
@@ -154,7 +153,7 @@ export const weeklyRoutes: FastifyPluginAsync = async (fastify) => {
           const outcome = await replaceWithDriveHighRes({
             weeklyId,
             xxxToDriveFile,
-            providerToken: driveToken,
+            driveToken,
             onProgress: async (msg) => {
               await broadcastImageReplaceProgress(taskId, {
                 step: 'replacing',
