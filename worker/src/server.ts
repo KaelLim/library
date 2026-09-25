@@ -11,7 +11,11 @@ import { runImportWorker } from './worker.js';
 import { buildExportUrl } from './services/google-docs.js';
 import { extractFolderId, listImagesRecursive } from './services/google-drive.js';
 import { initSupabase, getBookByBookId, incrementBookHits } from './services/supabase.js';
-import { isServiceAccountConfigured } from './services/google-drive-auth.js';
+import {
+  getServiceAccessToken,
+  isServiceAccountConfigured,
+  pickDriveToken,
+} from './services/google-drive-auth.js';
 import { apiV1Routes } from './routes/api-v1.js';
 import { articleRoutes } from './routes/articles.js';
 import { bookRoutes } from './routes/books.js';
@@ -333,15 +337,15 @@ fastify.get('/claude/status', {
   }
 });
 
-// Test Google Drive access
+// Test Google Drive access（Service Account 優先，否則 fallback 使用者 OAuth token）
 fastify.post<{
-  Body: { folder_url: string; provider_token: string };
+  Body: { folder_url: string; provider_token?: string };
 }>('/test-drive', {
   preHandler: [requireAuth],
   schema: {
     body: {
       type: 'object',
-      required: ['folder_url', 'provider_token'],
+      required: ['folder_url'],
       properties: {
         folder_url: { type: 'string' },
         provider_token: { type: 'string' },
@@ -351,10 +355,10 @@ fastify.post<{
 }, async (request, reply) => {
   const { folder_url, provider_token } = request.body;
 
-  if (!folder_url || !provider_token) {
+  if (!folder_url) {
     return reply.status(400).send({
       error: 'MISSING_PARAMS',
-      message: 'folder_url and provider_token are required',
+      message: 'folder_url is required',
     });
   }
 
@@ -366,9 +370,34 @@ fastify.post<{
     });
   }
 
+  // Service Account 優先，否則退回使用者 provider_token
+  let saToken: string | null = null;
+  if (isServiceAccountConfigured()) {
+    try {
+      saToken = await getServiceAccessToken();
+    } catch (error) {
+      return reply.status(500).send({
+        error: 'SA_TOKEN_ERROR',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const driveToken = pickDriveToken(saToken, provider_token);
+  if (!driveToken) {
+    return reply.status(400).send({
+      error: 'NO_DRIVE_AUTH',
+      message: 'Drive 認證不足：service account 未設定且未提供 user OAuth token',
+    });
+  }
+
   try {
-    const files = await listImagesRecursive(provider_token, folderId);
-    return { folder_id: folderId, total: files.length, files };
+    const files = await listImagesRecursive(driveToken, folderId);
+    return {
+      folder_id: folderId,
+      total: files.length,
+      files,
+      auth: saToken ? 'service_account' : 'user_oauth',
+    };
   } catch (error) {
     return reply.status(400).send({
       error: 'DRIVE_ERROR',

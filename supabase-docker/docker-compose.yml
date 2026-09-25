@@ -631,11 +631,14 @@ services:
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8973,http://localhost:8000,http://localhost:3001}
       ALLOWED_PDF_HOSTS: ${ALLOWED_PDF_HOSTS:-}
+      # Google Drive Service Account 金鑰（讀取週報圖片資料夾用）；掛載檔優先於 env 字串
+      GOOGLE_SERVICE_ACCOUNT_FILE: /app/drive-service-account.json
     volumes:
       - ../.claude/skills:/.claude/skills:ro
       - ../books:/app/books:ro
       - claude-credentials:/root/.claude
       - ../worker/firebase-service-account.json:/app/firebase-service-account.json:ro
+      - ../worker/drive-service-account.json:/app/drive-service-account.json:ro
     deploy:
       resources:
         limits:

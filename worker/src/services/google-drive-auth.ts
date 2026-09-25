@@ -1,14 +1,17 @@
 /**
  * Google Drive Service Account auth
  *
- * 讀取 GOOGLE_SERVICE_ACCOUNT_JSON env（整串 JSON 字串），
- * 用 RS256 JWT bearer flow 換 OAuth access token，
+ * 金鑰來源（依序優先）：
+ *   1. GOOGLE_SERVICE_ACCOUNT_FILE — 掛載進來的 JSON 檔路徑（生產環境建議）
+ *   2. GOOGLE_SERVICE_ACCOUNT_JSON — 整串 JSON 字串
+ * 取得後用 RS256 JWT bearer flow 換 OAuth access token，
  * 內建 memory cache + auto refresh（過期前 5 分鐘 refresh）。
  *
- * env 未設或解析失敗 → 回 null，由 caller fallback 到 user OAuth token。
+ * 兩者都未設或解析失敗 → 回 null，由 caller fallback 到 user OAuth token。
  */
 
 import { createSign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 interface ServiceAccountKey {
   client_email: string;
@@ -29,29 +32,58 @@ let cachedKey: ServiceAccountKey | null | undefined;
 let cachedToken: CachedToken | null = null;
 let inflight: Promise<string> | null = null;
 
-function loadKey(): ServiceAccountKey | null {
-  if (cachedKey !== undefined) return cachedKey;
-
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) {
-    cachedKey = null;
-    return null;
+/**
+ * 取得 SA 金鑰的原始 JSON 字串。
+ * 優先讀 GOOGLE_SERVICE_ACCOUNT_FILE（掛載檔），否則讀 GOOGLE_SERVICE_ACCOUNT_JSON（env 字串）。
+ * 兩者皆無、或檔案讀不到 → 回 null。
+ */
+export function readRawServiceAccountKey(): string | null {
+  const filePath = process.env.GOOGLE_SERVICE_ACCOUNT_FILE;
+  if (filePath) {
+    try {
+      return readFileSync(filePath, 'utf-8');
+    } catch (err) {
+      console.warn(`[drive-auth] Failed to read GOOGLE_SERVICE_ACCOUNT_FILE (${filePath}):`, err);
+      return null;
+    }
   }
+  return process.env.GOOGLE_SERVICE_ACCOUNT_JSON || null;
+}
 
+/**
+ * 解析 SA 金鑰 JSON 字串為 key 物件。
+ * 非法 JSON、缺 client_email 或 private_key → 回 null。
+ */
+export function parseServiceAccountKey(raw: string | null): ServiceAccountKey | null {
+  if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as ServiceAccountKey;
     if (!parsed.client_email || !parsed.private_key) {
-      console.warn('[drive-auth] GOOGLE_SERVICE_ACCOUNT_JSON missing client_email or private_key');
-      cachedKey = null;
+      console.warn('[drive-auth] service account key missing client_email or private_key');
       return null;
     }
-    cachedKey = parsed;
-    return cachedKey;
+    return parsed;
   } catch (err) {
-    console.warn('[drive-auth] Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON:', err);
-    cachedKey = null;
+    console.warn('[drive-auth] Failed to parse service account key:', err);
     return null;
   }
+}
+
+function loadKey(): ServiceAccountKey | null {
+  if (cachedKey !== undefined) return cachedKey;
+  cachedKey = parseServiceAccountKey(readRawServiceAccountKey());
+  return cachedKey;
+}
+
+/**
+ * 選出實際要用的 Drive token：Service Account 優先，否則退回使用者 OAuth token。
+ * 兩者皆無 → null。
+ */
+export function pickDriveToken(
+  saToken: string | null,
+  providerToken?: string
+): string | null {
+  return saToken || providerToken || null;
 }
 
 export function isServiceAccountConfigured(): boolean {
